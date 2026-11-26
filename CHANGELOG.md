@@ -4,6 +4,8 @@ Newest day first. Within a day, the latest change is listed first.
 
 ### 2026-11-26
 
+- Security: changing the password signs out every other browser; pages with card details or passwords are no longer cached; the login redirect refuses backslash and control-character paths.
+- Appearance settings: 10 colour themes, light, dark or follow device, corner rounding, font, shadows and page width. Saved in the database.
 - Test messages now check that the phone server stored the message, and say what to check on the phone if nothing arrives.
 - README: explains the test buttons and what a successful test does and doesn't prove.
 

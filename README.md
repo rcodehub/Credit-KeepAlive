@@ -1,4 +1,4 @@
-# Credit Keepalive
+# Credit-KeepAlive
 
 Keeps a family's credit cards in use so banks don't close them for inactivity. Cards are
 grouped by owner, and each person gets a reminder on their own phone or by email when a card is due.
@@ -12,7 +12,7 @@ It runs as one container: the web app plus a built-in phone notification server.
 
 ## Install on Unraid
 
-Search for **Credit Keepalive** in Community Applications and install it. The template is also
+Search for **Credit-KeepAlive** in Community Applications and install it. The template is also
 in this repository at `unraid/my-Credit-Keepalive.xml`.
 
 ### Settings
@@ -69,7 +69,7 @@ passwords are kept in the app data folder:
 |---|---|---|
 | `phone` | Family phones, in the ntfy app | Read alerts. Can't send. |
 | `admin` | You, on the ntfy web page at the phone server address | Full control of the phone server. |
-| `publisher` | Credit Keepalive itself | Send alerts. |
+| `publisher` | Credit-KeepAlive itself | Send alerts. |
 
 **Settings** shows the `phone` and `admin` passwords. **Make a new phone password** (or admin password)
 changes it right away; then log in again on each phone with the new password.
@@ -94,6 +94,7 @@ If you're upgrading from a version without logins, log in to the ntfy app on eac
   Full card numbers are rejected. A sample file is on the import page.
 - **Email** works through Apprise. Add an address in Settings, for example
   `mailto://yourname:app-password@gmail.com?to=you@example.com`. See the [Apprise docs](https://github.com/caronc/apprise) for other services.
+- **Appearance** (Settings): 10 colour themes, light, dark or follow your device, plus corner rounding, font, shadows and page width. Saved on the server, so every device matches.
 
 ## Security
 

@@ -38,6 +38,6 @@ jobs:
           if git diff --cached --quiet; then
             echo "Template unchanged."
           else
-            git commit -m "Credit Keepalive template: build ${BUILD_NUMBER}"
+            git commit -m "Credit-KeepAlive template: build ${BUILD_NUMBER}"
             git push
           fi

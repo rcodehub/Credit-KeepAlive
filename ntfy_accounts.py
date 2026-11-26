@@ -6,7 +6,7 @@ secret goes into the Unraid template.
   admin      The hoster. Logs in to the ntfy web page (Settings shows the password).
              Admin role, so it can see every topic.
   phone      The family's phones. Read-only on every topic. Enter this in the ntfy app.
-  publisher  Credit Keepalive itself. Read and write on every topic. Its token is saved in
+  publisher  Credit-KeepAlive itself. Read and write on every topic. Its token is saved in
              the app data folder and used only for publishing on the built-in server.
 
 The server runs with NTFY_AUTH_DEFAULT_ACCESS=deny-all, so nothing can be read or published

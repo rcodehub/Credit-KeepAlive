@@ -1,4 +1,4 @@
-"""Credit Keepalive
+"""Credit-KeepAlive
 
 Tracks family credit cards (grouped by owner) and reminds the right people when
 a card is due for use again. Flask + SQLite, password login, a built-in
@@ -63,7 +63,15 @@ DEFAULTS = {
     "default_interval": os.environ.get("DEFAULT_INTERVAL_DAYS", "45"),
     # How far ahead of its cycle a card may come up, as a percent of the cycle, so cards don't all fall on one day.
     "stagger_percent": "25",
+    # Appearance (see the Appearance section of Settings)
+    "look_mode": "auto",
+    "look_theme": "default",
+    "look_radius": "18",
+    "look_font": "",
+    "look_shadow": "soft",
+    "look_width": "standard",
 }
+APPEARANCE_DEFAULTS = {k: v for k, v in DEFAULTS.items() if k.startswith("look_")}
 
 
 
@@ -1147,7 +1155,7 @@ def latest_ntfy_version():
     try:
         req = Request("https://api.github.com/repos/binwiederhier/ntfy/releases/latest",
                       headers={"Accept": "application/vnd.github+json",
-                               "User-Agent": "credit-keepalive"})
+                               "User-Agent": "Credit-KeepAlive"})
         with urlopen(req, timeout=8) as r:
             tag = json.loads(r.read().decode()).get("tag_name", "")
         version = _version(tag)
@@ -1370,6 +1378,113 @@ def scheduled_tick():
     run_check()
 
 
+# ----------------------------------------------------------------- appearance
+# The colour themes used across rcodehub's apps (same palettes as AutoExtract), plus this app's original look.
+# Each theme has a light and a dark palette: bg, bg2 (bars and pills), card, text, muted, line, accent, accent2.
+def _pal(bg, card, text, muted, line, accent, bg2=None):
+    return dict(bg=bg, bg2=bg2 or line, card=card, text=text, muted=muted, line=line, accent=accent, accent2=accent)
+
+APPEARANCE_THEMES = [
+    ("default", "Credit-KeepAlive",
+     _pal("#eef1f6", "#ffffff", "#162033", "#64708a", "#dde3ee", "#3b6cf6", bg2="#e2e7f0"),
+     _pal("#0d1017", "#171c27", "#e9edf5", "#8e99b1", "#262e3f", "#6d8dff", bg2="#141924")),
+    ("unraid", "Unraid orange",
+     _pal("#f4f5f7", "#ffffff", "#1b1f24", "#667085", "#dde1e6", "#e8590c"),
+     _pal("#111317", "#1a1d23", "#e6e8eb", "#8b94a3", "#2c313a", "#f76707")),
+    ("midnight", "Midnight",
+     _pal("#eef2fb", "#ffffff", "#14213d", "#5c6b8a", "#d5ddf0", "#3b82f6"),
+     _pal("#0b1020", "#141b34", "#e6ebff", "#8a96bd", "#25305a", "#5aa2ff", bg2="#131a33")),
+    ("nord", "Nord",
+     _pal("#eceff4", "#ffffff", "#2e3440", "#5e6b81", "#d8dee9", "#5e81ac"),
+     _pal("#2e3440", "#3b4252", "#eceff4", "#a3adc2", "#4c566a", "#88c0d0")),
+    ("dracula", "Dracula",
+     _pal("#f8f8f2", "#ffffff", "#282a36", "#6272a4", "#e1e1d8", "#7c4dff"),
+     _pal("#282a36", "#343746", "#f8f8f2", "#a6aecc", "#44475a", "#bd93f9")),
+    ("solarized", "Solarized",
+     _pal("#fdf6e3", "#fffbf0", "#586e75", "#93a1a1", "#eee8d5", "#b58900"),
+     _pal("#002b36", "#073642", "#93a1a1", "#657b83", "#0f4452", "#2aa198")),
+    ("forest", "Forest",
+     _pal("#eef3ec", "#ffffff", "#1d2b1f", "#607264", "#d3dfd0", "#2f9e44"),
+     _pal("#0f1a12", "#17241a", "#e3efe4", "#8aa38d", "#264030", "#51cf66", bg2="#16261a")),
+    ("rose", "Rosé",
+     _pal("#fdf1f4", "#ffffff", "#3a1f2b", "#8a6572", "#f3d5de", "#e64980"),
+     _pal("#1b1116", "#26181f", "#f6e7ec", "#b58b99", "#3d2530", "#f06595")),
+    ("contrast", "High contrast",
+     _pal("#ffffff", "#ffffff", "#000000", "#333333", "#000000", "#0044cc"),
+     _pal("#000000", "#000000", "#ffffff", "#dddddd", "#ffffff", "#ffd400")),
+    ("terminal", "Terminal",
+     _pal("#f2f5ee", "#f8faf4", "#1a2a14", "#4b6a3c", "#9fb88f", "#2f7d12"),
+     _pal("#050805", "#0a120a", "#7dff6a", "#3fa032", "#1f4d1a", "#39ff14")),
+]
+THEME_BY_ID = {t[0]: t for t in APPEARANCE_THEMES}
+
+SHADOWS = {  # light, dark
+    "none": ("none", "none"),
+    "soft": ("0 10px 30px -12px rgba(22,32,51,.25)", "0 10px 30px -12px rgba(0,0,0,.6)"),
+    "strong": ("0 18px 40px -10px rgba(22,32,51,.45)", "0 18px 40px -10px rgba(0,0,0,.85)"),
+}
+FONTS = {  # "" keeps the standard system font
+    "": 'system-ui,-apple-system,"Segoe UI",Roboto,sans-serif',
+    "rounded": 'ui-rounded,"SF Pro Rounded",Nunito,"Segoe UI",system-ui,sans-serif',
+    "serif": 'Georgia,"Times New Roman",serif',
+    "mono": "ui-monospace,SFMono-Regular,Menlo,Consolas,monospace",
+}
+WIDTHS = {"standard": "1120px", "wide": "1400px", "full": "100%"}
+APPEARANCE_CHOICES = {
+    "look_mode": ("auto", "light", "dark"),
+    "look_theme": tuple(THEME_BY_ID),
+    "look_font": tuple(FONTS),
+    "look_shadow": tuple(SHADOWS),
+    "look_width": tuple(WIDTHS),
+}
+
+
+def current_look():
+    """The saved look, with anything unknown or out of range put back to its default."""
+    look = {}
+    for key, default in APPEARANCE_DEFAULTS.items():
+        value = get_setting(key)
+        if key in APPEARANCE_CHOICES and value not in APPEARANCE_CHOICES[key]:
+            value = default
+        look[key] = value if value is not None else default
+    try:
+        look["look_radius"] = str(min(24, max(0, int(look["look_radius"]))))
+    except (TypeError, ValueError):
+        look["look_radius"] = APPEARANCE_DEFAULTS["look_radius"]
+    return look
+
+
+def look_css():
+    """CSS that restyles the page for the saved theme. Goes after the main stylesheet, so it wins."""
+    look = current_look()
+    theme = THEME_BY_ID.get(look["look_theme"], APPEARANCE_THEMES[0])
+    light, dark = theme[2], theme[3]
+    shadow_light, shadow_dark = SHADOWS[look["look_shadow"]]
+
+    def vars_(p, shadow):
+        return ("--bg:%(bg)s;--bg2:%(bg2)s;--card:%(card)s;--text:%(text)s;--muted:%(muted)s;"
+                "--line:%(line)s;--accent:%(accent)s;--accent2:%(accent2)s;--shadow:%(shadow)s;") % dict(p, shadow=shadow)
+
+    light_vars = vars_(light, shadow_light)
+    dark_vars = vars_(dark, shadow_dark)
+    common = "--radius:%spx;--font:%s;--maxw:%s;" % (look["look_radius"], FONTS[look["look_font"]], WIDTHS[look["look_width"]])
+    # Light is the base. Dark follows the device unless a mode is forced. The explicit mode rules come last.
+    return (":root{" + light_vars + common + "}"
+            "@media (prefers-color-scheme: dark){:root:not([data-mode=\"light\"]){" + dark_vars + "}}"
+            ':root[data-mode="light"]{' + light_vars + "}"
+            ':root[data-mode="dark"]{' + dark_vars + "}")
+
+
+def look_attr():
+    """Puts data-mode on the <html> tag when light or dark is forced."""
+    mode = current_look()["look_mode"]
+    return "" if mode == "auto" else ' data-mode="%s"' % mode
+
+
+def appearance_themes():
+    return [(t[0], t[1]) for t in APPEARANCE_THEMES]
+
+
 # ----------------------------------------------------------------- templates
 CSS = r"""
 *{box-sizing:border-box}
@@ -1390,11 +1505,11 @@ CSS = r"""
   --accent:#6d8dff; --accent2:#a78bfa; --shadow:0 10px 30px -12px rgba(0,0,0,.6);
 }
 body{margin:0;min-height:100vh;color:var(--text);background:var(--bg);
-  font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  font:15px/1.5 var(--font,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif);
   background-image:radial-gradient(900px 500px at 0% -10%,rgba(59,108,246,.16),transparent 60%),
   radial-gradient(800px 500px at 110% 0%,rgba(124,92,246,.14),transparent 60%)}
 a{color:var(--accent);text-decoration:none}
-.wrap{max-width:1120px;margin:0 auto;padding:0 16px}
+.wrap{max-width:var(--maxw,1120px);margin:0 auto;padding:0 16px}
 main.wrap{padding-top:24px;padding-bottom:60px}
 .top{position:sticky;top:0;z-index:10;backdrop-filter:blur(12px);background:var(--bg);border-bottom:1px solid var(--line)}
 .topbar{display:flex;align-items:center;gap:12px;min-height:60px;flex-wrap:wrap;padding-top:8px;padding-bottom:8px}
@@ -1516,17 +1631,17 @@ th{color:var(--muted);font-weight:600;border-top:0}
 """
 
 BASE = r"""<!doctype html>
-<html lang="en">
+<html lang="en"{{ look_attr|safe }}>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
-<title>{% block title %}Credit Keepalive{% endblock %}</title>
-<style>{{ css|safe }}</style>
+<title>{% block title %}Credit-KeepAlive{% endblock %}</title>
+<style>{{ css|safe }}</style><style>{{ look_css|safe }}</style>
 </head>
 <body>
 <header class="top"><div class="wrap topbar">
-  <a class="brand" href="{{ url_for('index') }}"><span class="logo">💳</span>Credit Keepalive</a>
+  <a class="brand" href="{{ url_for('index') }}"><span class="logo">💳</span>Credit-KeepAlive</a>
   {% if session.get('auth') %}
   <nav>
     <a href="{{ url_for('index') }}" class="{{ 'on' if page == 'dashboard' }}">Cards</a>
@@ -1543,7 +1658,7 @@ BASE = r"""<!doctype html>
 {% with messages = get_flashed_messages() %}{% for m in messages %}<div class="toast">{{ m }}</div>{% endfor %}{% endwith %}
 {% block content %}{% endblock %}
 </main>
-<footer class="wrap meta" style="padding:18px 0 28px;text-align:center">Credit Keepalive version {{ app_version }}</footer>
+<footer class="wrap meta" style="padding:18px 0 28px;text-align:center">Credit-KeepAlive version {{ app_version }}</footer>
 </body>
 </html>
 """
@@ -1563,11 +1678,11 @@ MACROS = r"""
 
 DASHBOARD = r"""{% extends 'base.html' %}
 {% from 'macros.html' import cardface %}
-{% block title %}Cards · Credit Keepalive{% endblock %}
+{% block title %}Cards · Credit-KeepAlive{% endblock %}
 {% block content %}
 {% if ntfy_update %}
 <div class="notice"><b>Developer notice:</b> ntfy {{ ntfy_update.latest }} is out, and this build includes {{ ntfy_update.local }}.
-  Rebuild Credit Keepalive to pick it up.</div>
+  Rebuild Credit-KeepAlive to pick it up.</div>
 {% endif %}
 <div class="hero">
   <div>
@@ -1649,7 +1764,7 @@ DASHBOARD = r"""{% extends 'base.html' %}
 
 CARD_FORM = r"""{% extends 'base.html' %}
 {% from 'macros.html' import cardface %}
-{% block title %}{{ 'Edit card' if editing else 'Add card' }} · Credit Keepalive{% endblock %}
+{% block title %}{{ 'Edit card' if editing else 'Add card' }} · Credit-KeepAlive{% endblock %}
 {% block content %}
 <h1>{{ 'Edit card' if editing else 'Add a card' }}</h1>
 <p class="meta" style="margin-bottom:18px">Only store the last 4 digits. Never enter full card numbers.</p>
@@ -1799,7 +1914,7 @@ CARD_FORM = r"""{% extends 'base.html' %}
 """
 
 CARD_IMPORT = r"""{% extends 'base.html' %}
-{% block title %}Import cards · Credit Keepalive{% endblock %}
+{% block title %}Import cards · Credit-KeepAlive{% endblock %}
 {% block content %}
 <h1>Import cards</h1>
 {% if stage == 'upload' %}
@@ -1860,7 +1975,7 @@ American Express,Blue Cash Everyday,5678,Dad</pre>
 """
 
 CARD_PICTURES = r"""{% extends 'base.html' %}
-{% block title %}Check pictures · Credit Keepalive{% endblock %}
+{% block title %}Check pictures · Credit-KeepAlive{% endblock %}
 {% block content %}
 <h1>Check card pictures</h1>
 <p class="meta" style="margin-bottom:12px">Each file is matched to a card by its name. Check the picks, change any that are wrong,
@@ -1908,7 +2023,7 @@ CARD_PICTURES = r"""{% extends 'base.html' %}
 """
 
 PEOPLE = r"""{% extends 'base.html' %}
-{% block title %}People · Credit Keepalive{% endblock %}
+{% block title %}People · Credit-KeepAlive{% endblock %}
 {% block content %}
 <div class="hero">
   <div>
@@ -1976,7 +2091,7 @@ PEOPLE = r"""{% extends 'base.html' %}
 """
 
 HISTORY = r"""{% extends 'base.html' %}
-{% block title %}History · Credit Keepalive{% endblock %}
+{% block title %}History · Credit-KeepAlive{% endblock %}
 {% block content %}
 <h1>History</h1>
 <p class="meta" style="margin-bottom:18px">Every logged use. Undo removes an entry and recalculates the card's last-used date.</p>
@@ -2025,7 +2140,7 @@ HISTORY = r"""{% extends 'base.html' %}
 """
 
 SETTINGS = r"""{% extends 'base.html' %}
-{% block title %}Settings · Credit Keepalive{% endblock %}
+{% block title %}Settings · Credit-KeepAlive{% endblock %}
 {% block content %}
 <h1>Settings</h1>
 <p class="meta" style="margin-bottom:18px">Choose where reminders go and when they are sent.</p>
@@ -2194,6 +2309,53 @@ SETTINGS = r"""{% extends 'base.html' %}
     <p class="meta">Sending reminders now ignores the repeat delay and sends to everyone who should get one right now.</p>
   </section>
 
+  <form method="post" action="{{ url_for('settings_appearance') }}" class="panel form">
+    <h2>Appearance</h2>
+    <p class="meta">Saved on the server, so every device shows the same look.</p>
+    <div class="two">
+      <label>Light or dark
+        <select name="look_mode">
+          <option value="auto" {{ 'selected' if s.look_mode == 'auto' }}>Follow my device</option>
+          <option value="light" {{ 'selected' if s.look_mode == 'light' }}>Light</option>
+          <option value="dark" {{ 'selected' if s.look_mode == 'dark' }}>Dark</option>
+        </select>
+      </label>
+      <label>Colour theme
+        <select name="look_theme">{% for tid, tname in look_themes %}<option value="{{ tid }}" {{ 'selected' if s.look_theme == tid }}>{{ tname }}</option>{% endfor %}</select>
+      </label>
+    </div>
+    <div class="two">
+      <label>Corner rounding (0 to 24)
+        <input name="look_radius" type="number" min="0" max="24" value="{{ s.look_radius }}">
+      </label>
+      <label>Font
+        <select name="look_font">
+          <option value="" {{ 'selected' if s.look_font == '' }}>Standard</option>
+          <option value="rounded" {{ 'selected' if s.look_font == 'rounded' }}>Rounded</option>
+          <option value="serif" {{ 'selected' if s.look_font == 'serif' }}>Serif</option>
+          <option value="mono" {{ 'selected' if s.look_font == 'mono' }}>Monospace</option>
+        </select>
+      </label>
+    </div>
+    <div class="two">
+      <label>Shadows
+        <select name="look_shadow">
+          <option value="none" {{ 'selected' if s.look_shadow == 'none' }}>None</option>
+          <option value="soft" {{ 'selected' if s.look_shadow == 'soft' }}>Soft</option>
+          <option value="strong" {{ 'selected' if s.look_shadow == 'strong' }}>Strong</option>
+        </select>
+      </label>
+      <label>Page width
+        <select name="look_width">
+          <option value="standard" {{ 'selected' if s.look_width == 'standard' }}>Standard</option>
+          <option value="wide" {{ 'selected' if s.look_width == 'wide' }}>Wide</option>
+          <option value="full" {{ 'selected' if s.look_width == 'full' }}>Full width</option>
+        </select>
+      </label>
+    </div>
+    <div class="actions"><button class="primary" type="submit">Save appearance</button>
+      <button class="ghost" type="submit" name="reset" value="1">Reset to the default look</button></div>
+  </form>
   <form method="post" action="{{ url_for('change_password') }}" class="panel form">
     <h2>Change password</h2>
     <div class="two">
@@ -2207,7 +2369,7 @@ SETTINGS = r"""{% extends 'base.html' %}
 """
 
 AUTH = r"""{% extends 'base.html' %}
-{% block title %}{{ heading }} · Credit Keepalive{% endblock %}
+{% block title %}{{ heading }} · Credit-KeepAlive{% endblock %}
 {% block content %}
 <div class="auth panel">
   <div class="auth-logo">💳</div>
@@ -2230,11 +2392,11 @@ AUTH = r"""{% extends 'base.html' %}
 """
 
 CONFIRM = r"""<!doctype html>
-<html lang="en"><head><meta charset="utf-8">
+<html lang="en"{{ look_attr|safe }}><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
-<title>Mark used · Credit Keepalive</title>
-<style>{{ css|safe }}
+<title>Mark used · Credit-KeepAlive</title>
+<style>{{ css|safe }}</style><style>{{ look_css|safe }}</style><style>
 body{display:grid;place-items:center}
 </style></head>
 <body>
@@ -2351,8 +2513,12 @@ def _record_failure(ip):
 
 
 def _safe_next(target):
-    if target and target.startswith("/") and not target.startswith("//"):
-        return target
+    """Only same-site paths. Browsers treat a backslash or a control character as a slash, so refuse those too."""
+    if target and target.startswith("/") and not target.startswith("//") and "\\" not in target \
+            and not any(ord(ch) < 32 or ord(ch) == 127 for ch in target):
+        p = urlparse(target)
+        if not p.scheme and not p.netloc:
+            return target
     return url_for("index")
 
 
@@ -2384,6 +2550,8 @@ def security_headers(resp):
     resp.headers.setdefault("X-Frame-Options", "DENY")
     resp.headers.setdefault("X-Content-Type-Options", "nosniff")
     resp.headers.setdefault("Referrer-Policy", "same-origin")
+    if resp.mimetype == "text/html":
+        resp.headers["Cache-Control"] = "no-store"  # pages show card and alert details, and the phone logins
     resp.headers.setdefault("Content-Security-Policy",
                             "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; "
                             "script-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'self'; "
@@ -2397,7 +2565,8 @@ def gate():
         return None
     if not get_setting("password_hash"):
         return redirect(url_for("setup"))
-    if not session.get("auth"):
+    if not session.get("auth") or session.get("epoch") != get_setting("session_epoch"):
+        session.pop("auth", None)
         return redirect(url_for("login", next=request.full_path.rstrip("?")))
     return None
 
@@ -2412,7 +2581,7 @@ def _app_version():
 
 
 def _render(template, **ctx):
-    html = render_template(template, css=CSS, **ctx)
+    html = render_template(template, css=CSS, look_css=look_css(), look_attr=look_attr(), **ctx)
     hidden = f'<input type="hidden" name="csrf_token" value="{csrf_token()}">'
     return _FORM_RE.sub(lambda m_: m_.group(1) + hidden, html)
 
@@ -2432,6 +2601,7 @@ def setup():
             set_setting("password_hash", generate_password_hash(pw))
             session.permanent = True
             session["auth"] = True
+            session["epoch"] = get_setting("session_epoch")
             return redirect(url_for("index"))
     return _render("auth.html", page="setup", heading="Set a password",
                    intro="First-time setup. This password protects the dashboard. "
@@ -2451,11 +2621,12 @@ def login():
             _login_brake.clear(ip)
             session.permanent = True
             session["auth"] = True
+            session["epoch"] = get_setting("session_epoch")
             return redirect(_safe_next(request.args.get("next")))
         else:
             _record_failure(ip)
             flash("Wrong password.")
-    return _render("auth.html", page="login", heading="Credit Keepalive", intro="",
+    return _render("auth.html", page="login", heading="Credit-KeepAlive", intro="",
                    confirm=False, button="Log in")
 
 
@@ -2473,7 +2644,10 @@ def change_password():
         flash(f"New password needs at least {MIN_PASSWORD} characters.")
     else:
         set_setting("password_hash", generate_password_hash(request.form["new"]))
-        flash("Password changed.")
+        epoch = secrets.token_hex(12)
+        set_setting("session_epoch", epoch)  # every other signed-in browser must log in again
+        session["epoch"] = epoch
+        flash("Password changed. Other browsers have been signed out.")
     return redirect(url_for("settings_page"))
 
 
@@ -2971,7 +3145,7 @@ def _stage_and_review(uploads, problems):
 
 
 # -- finding pictures on a card website
-SCRAPE_UA = "Mozilla/5.0 (compatible; CreditKeepalive/1.0; self-hosted card picture helper)"
+SCRAPE_UA = "Mozilla/5.0 (compatible; CreditKeepAlive/1.0; self-hosted card picture helper)"
 SCRAPE_TIMEOUT = 8                  # seconds per request
 SCRAPE_BUDGET = 20                  # seconds for the whole search; the web server stops a request after 30
 SCRAPE_MAX_PAGE = 3 * 1024 * 1024
@@ -3281,7 +3455,7 @@ def card_pictures_export():
             cards.append({"issuer": r["issuer"], "name": r["name"], "file": fname})
         z.writestr("manifest.json", json.dumps({"format": PICTURE_PACK_FORMAT, "version": 1, "cards": cards}, indent=2))
     return Response(buf.getvalue(), mimetype="application/zip",
-                    headers={"Content-Disposition": 'attachment; filename="credit-keepalive-card-pictures.zip"'})
+                    headers={"Content-Disposition": 'attachment; filename="Credit-KeepAlive-card-pictures.zip"'})
 
 
 @app.post("/card-pictures/import")
@@ -3517,7 +3691,7 @@ def settings_page():
         phone=phone_server(),
         ntfy={"up": phone_server_ready(), "builtin": builtin,
               "topic": topic_from(topic) if builtin else ""},
-        ntfy_logins=ntfy_logins(),
+        ntfy_logins=ntfy_logins(), look_themes=appearance_themes(),
     )
 
 
@@ -3541,6 +3715,25 @@ def settings_save():
         except ValueError:
             pass
     flash("Settings saved.")
+    return redirect(url_for("settings_page"))
+
+
+@app.post("/settings/appearance")
+def settings_appearance():
+    if request.form.get("reset"):
+        for key, value in APPEARANCE_DEFAULTS.items():
+            set_setting(key, value)
+        flash("The default look is back.")
+        return redirect(url_for("settings_page"))
+    for key, choices in APPEARANCE_CHOICES.items():
+        value = request.form.get(key, "")
+        if value in choices:
+            set_setting(key, value)
+    try:
+        set_setting("look_radius", min(24, max(0, int(request.form.get("look_radius", "")))))
+    except ValueError:
+        pass
+    flash("Appearance saved.")
     return redirect(url_for("settings_page"))
 
 

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Runs the ntfy server and the Credit Keepalive app side by side in one container.
+# Runs the ntfy server and the Credit-KeepAlive app side by side in one container.
 # If either one stops, the container stops and Docker restarts it.
 mkdir -p /data/ntfy
 
