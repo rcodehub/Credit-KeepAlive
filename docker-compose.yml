@@ -1,0 +1,28 @@
+# Only needed if you run Docker Compose instead of the Unraid template.
+# Change the two addresses below to your Unraid server's IP address, then run:
+#   docker compose up -d --build
+services:
+  credit-keepalive:
+    build: .
+    container_name: credit-keepalive
+    restart: unless-stopped
+    ports:
+      - "8686:8080"   # web interface
+      - "2586:2586"   # ntfy, used by your phone
+    environment:
+      # Address the ntfy phone app connects to (change the IP to your server's).
+      # Behind a reverse proxy or Cloudflare Tunnel, use your hostname instead, e.g. https://ntfy.example.com
+      # (pointed at port 2586, with WebSocket support on).
+      - NTFY_BASE_URL=http://192.168.1.50:2586
+      # Address your phone uses to open this app (the Mark used buttons open it).
+      # Same as above: a proxy or Cloudflare hostname works here too.
+      - BASE_URL=http://192.168.1.50:8686
+      # Only if a reverse proxy or Cloudflare Tunnel is in front of the app: makes login lockouts
+      # count each visitor's real address (from the proxy's header). Leave unset otherwise.
+      # - TRUST_PROXY=1
+      # Time zone for the daily reminder check.
+      - TZ=America/New_York
+      # Optional: set the login password on first start. Otherwise you set it on your first visit.
+      # - APP_PASSWORD=choose-a-password
+    volumes:
+      - /mnt/user/appdata/credit-keepalive:/data

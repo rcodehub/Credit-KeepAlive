@@ -1,0 +1,43 @@
+name: Sync Community Applications template
+
+on:
+  workflow_run:
+    workflows: ["Build and publish image"]
+    types: [completed]
+  workflow_dispatch:
+
+jobs:
+  sync:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    env:
+      BUILD_NUMBER: ${{ github.event.workflow_run.run_number || github.run_number }}
+    steps:
+      - name: Check out the built commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Stamp the template
+        run: python3 .github/scripts/stamp_template.py unraid/my-Credit-Keepalive.xml "$RUNNER_TEMP/credit-keepalive.xml"
+
+      - name: Check out the Community Applications repo
+        uses: actions/checkout@v4
+        with:
+          repository: rcodehub/Unraid-CA-Apps
+          token: ${{ secrets.CA_REPO_TOKEN }}
+          path: ca
+
+      - name: Copy the template and push if it changed
+        run: |
+          cp "$RUNNER_TEMP/credit-keepalive.xml" ca/templates/credit-keepalive.xml
+          cd ca
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add templates/credit-keepalive.xml
+          if git diff --cached --quiet; then
+            echo "Template unchanged."
+          else
+            git commit -m "Credit Keepalive template: build ${BUILD_NUMBER}"
+            git push
+          fi
