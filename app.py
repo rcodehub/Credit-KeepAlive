@@ -1613,10 +1613,10 @@ button,.btn{font:inherit;font-weight:600;border:0;border-radius:11px;padding:9px
 button.ghost{font:inherit}
 .danger{background:transparent;color:var(--overdue);border:1px solid var(--line);border-radius:11px;padding:8px 12px;font:inherit;font-weight:600;cursor:pointer}
 details.other summary,details.chan summary{cursor:pointer;color:var(--accent);font-size:.88rem;font-weight:600}
-input,textarea{font:inherit;width:100%;padding:10px 12px;border-radius:11px;border:1px solid var(--line);background:var(--bg);color:var(--text)}
-input:focus,textarea:focus{outline:2px solid var(--accent);outline-offset:1px}
+input,textarea,select{font:inherit;width:100%;padding:10px 12px;border-radius:11px;border:1px solid var(--line);background:var(--bg);color:var(--text)}
+input:focus,textarea:focus,select:focus{outline:2px solid var(--accent);outline-offset:1px}
 label{display:block;font-size:.85rem;color:var(--muted);font-weight:600}
-label input,label textarea{margin-top:4px;color:var(--text);font-weight:400}
+label input,label textarea,label select{margin-top:4px;color:var(--text);font-weight:400}
 .form{display:flex;flex-direction:column;gap:14px}
 .two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 @media (max-width:640px){.two{grid-template-columns:1fr}}
@@ -1672,6 +1672,67 @@ th{color:var(--muted);font-weight:600;border-top:0}
 .theme-slate{background:linear-gradient(135deg,#8a96aa,#2c3443)}
 .notice{background:var(--card);border:1px solid var(--line);border-left:5px solid var(--soon);border-radius:14px;padding:12px 16px;margin-bottom:18px;box-shadow:var(--shadow);font-size:.92rem}
 .notice b{color:var(--text)}
+/* Settings pages: side list plus cards, theme menu in the header */
+.page-head{margin-bottom:18px}
+.page-head .meta{margin:4px 0 0;max-width:62ch}
+.page-head a{font-weight:600}
+.split{display:grid;grid-template-columns:190px minmax(0,1fr);gap:24px;align-items:start}
+.split>.stack{min-width:0}
+.side{position:sticky;top:84px;display:flex;flex-direction:column;gap:2px}
+.side a{padding:9px 12px;border-radius:11px;color:var(--muted);font-weight:600;font-size:.92rem}
+.side a:hover{background:var(--card);color:var(--text)}
+@media (max-width:820px){
+  .split{grid-template-columns:1fr}
+  .side{position:static;flex-direction:row;flex-wrap:wrap;gap:6px}
+  .side a{background:var(--card);border:1px solid var(--line);padding:7px 11px}
+}
+.sec-head{display:flex;flex-direction:column;gap:4px;margin-bottom:16px}
+.sec-head h2{font-size:1.15rem}
+.sec-head p{margin:0}
+.subpanel{background:var(--bg);border:1px solid var(--line);border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:12px}
+.subpanel h3{margin:0;font-size:1rem}
+.subpanel p{margin:0}
+.notice p{margin:0}
+label .meta{display:block;font-weight:400;margin-top:3px;line-height:1.4}
+.group{border:1px solid var(--line);border-radius:14px;padding:12px 14px;background:var(--bg)}
+.group summary{cursor:pointer}
+.steps{display:flex;flex-direction:column}
+.step{display:grid;grid-template-columns:34px minmax(0,1fr);gap:14px;padding:20px 0;border-top:1px solid var(--line)}
+.steps .step:first-child{border-top:0;padding-top:4px}
+.step-num{width:32px;height:32px;border-radius:50%;display:grid;place-items:center;font-weight:800;color:#fff;
+  background:linear-gradient(135deg,var(--accent),var(--accent2));box-shadow:0 6px 14px -8px var(--accent)}
+.step-body{display:flex;flex-direction:column;gap:14px;min-width:0}
+.step-body h3{margin:0;font-size:1rem}
+.step-body .form{gap:12px}
+.tips{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+.tip{background:var(--bg);border:1px solid var(--line);border-radius:14px;padding:12px 14px;display:flex;flex-direction:column;gap:4px;font-size:.9rem}
+.tip p{margin:0}
+.kv{background:var(--bg);border:1px solid var(--line);border-radius:14px;padding:4px 14px}
+.kv div{display:grid;grid-template-columns:110px minmax(0,1fr);gap:10px;align-items:center;padding:9px 0;border-top:1px solid var(--line)}
+.kv div:first-child{border-top:0}
+.kv code{word-break:break-all}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+.tile{position:relative;display:flex;gap:10px;align-items:flex-start;border:1px solid var(--line);border-radius:14px;padding:14px;
+  cursor:pointer;color:var(--text);font-weight:400;font-size:.92rem;margin:0;background:var(--bg)}
+.tile input{width:auto;margin:3px 0 0;flex:none}
+.tile span{display:flex;flex-direction:column;gap:2px}
+.tile:has(input:checked){border-color:var(--accent);box-shadow:0 0 0 2px var(--accent);background:var(--card)}
+.plain{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px;font-size:.92rem}
+.more{border-top:1px solid var(--line);padding-top:14px;margin-top:6px}
+.more summary{cursor:pointer;color:var(--accent);font-weight:600}
+.more[open] summary{margin-bottom:14px}
+.theme-menu{position:relative}
+.theme-menu summary{list-style:none;cursor:pointer}
+.theme-menu summary::-webkit-details-marker{display:none}
+.theme-panel{position:absolute;right:0;top:calc(100% + 10px);width:min(360px,calc(100vw - 32px));z-index:30;
+  background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:16px}
+.theme-panel h2{margin-bottom:2px}
+.theme-panel .form{gap:10px}
+.theme-panel label{font-size:.8rem}
+@media (max-width:640px){
+  .theme-menu{position:static}
+  .theme-panel{left:12px;right:12px;width:auto}
+}
 .confirm-box{max-width:340px;margin:12vh auto 0;text-align:center}
 """
 
@@ -1692,10 +1753,64 @@ BASE = r"""<!doctype html>
     <a href="{{ url_for('index') }}" class="{{ 'on' if page == 'dashboard' }}">Cards</a>
     <a href="{{ url_for('people_page') }}" class="{{ 'on' if page == 'people' }}">People</a>
     <a href="{{ url_for('history_page') }}" class="{{ 'on' if page == 'history' }}">History</a>
+    <a href="{{ url_for('card_settings_page') }}" class="{{ 'on' if page == 'card_settings' }}">Card settings</a>
     <a href="{{ url_for('settings_page') }}" class="{{ 'on' if page == 'settings' }}">Settings</a>
   </nav>
   <a class="ghost small" href="{{ url_for('card_import') }}">Import</a>
   <a class="btn primary small" href="{{ url_for('card_new') }}">+ Add card</a>
+  <details class="theme-menu">
+    <summary class="ghost">Theme</summary>
+    <div class="theme-panel">
+      <form method="post" action="{{ url_for('settings_appearance') }}" class="form">
+        <input type="hidden" name="next" value="{{ request.full_path }}">
+        <h2>Look</h2>
+        <p class="meta">Saved on the server, so every device shows the same look.</p>
+        <label>Light or dark
+          <select name="look_mode">
+            <option value="auto" {{ 'selected' if look.look_mode == 'auto' }}>Follow my device</option>
+            <option value="light" {{ 'selected' if look.look_mode == 'light' }}>Light</option>
+            <option value="dark" {{ 'selected' if look.look_mode == 'dark' }}>Dark</option>
+          </select>
+        </label>
+        <label>Colour theme
+          <select name="look_theme">{% for tid, tname in look_themes %}<option value="{{ tid }}" {{ 'selected' if look.look_theme == tid }}>{{ tname }}</option>{% endfor %}</select>
+        </label>
+        <div class="two">
+          <label>Corner rounding (0 to 24)
+            <input name="look_radius" type="number" min="0" max="24" value="{{ look.look_radius }}">
+          </label>
+          <label>Font
+            <select name="look_font">
+              <option value="" {{ 'selected' if look.look_font == '' }}>Standard</option>
+              <option value="rounded" {{ 'selected' if look.look_font == 'rounded' }}>Rounded</option>
+              <option value="serif" {{ 'selected' if look.look_font == 'serif' }}>Serif</option>
+              <option value="mono" {{ 'selected' if look.look_font == 'mono' }}>Monospace</option>
+            </select>
+          </label>
+        </div>
+        <div class="two">
+          <label>Shadows
+            <select name="look_shadow">
+              <option value="none" {{ 'selected' if look.look_shadow == 'none' }}>None</option>
+              <option value="soft" {{ 'selected' if look.look_shadow == 'soft' }}>Soft</option>
+              <option value="strong" {{ 'selected' if look.look_shadow == 'strong' }}>Strong</option>
+            </select>
+          </label>
+          <label>Page width
+            <select name="look_width">
+              <option value="standard" {{ 'selected' if look.look_width == 'standard' }}>Standard</option>
+              <option value="wide" {{ 'selected' if look.look_width == 'wide' }}>Wide</option>
+              <option value="full" {{ 'selected' if look.look_width == 'full' }}>Full width</option>
+            </select>
+          </label>
+        </div>
+        <div class="actions">
+          <button class="primary small" type="submit">Save look</button>
+          <button class="ghost" type="submit" name="reset" value="1">Reset</button>
+        </div>
+      </form>
+    </div>
+  </details>
   <form method="post" action="{{ url_for('logout') }}"><button class="ghost small" type="submit">Log out</button></form>
   {% endif %}
 </div></header>
@@ -2188,251 +2303,344 @@ HISTORY = r"""{% extends 'base.html' %}
 SETTINGS = r"""{% extends 'base.html' %}
 {% block title %}Settings · Credit-KeepAlive{% endblock %}
 {% block content %}
-<h1>Settings</h1>
-<p class="meta" style="margin-bottom:18px">Choose where reminders go and when they are sent.</p>
-<div class="stack">
+<div class="page-head">
+  <h1>Settings</h1>
+  <p class="meta">Reminders, phone alerts and your login. Card-related settings are on <a href="{{ url_for('card_settings_page') }}">Card settings</a>.</p>
+</div>
 
-  <section class="panel stack-col">
-    <h2>Phone notifications</h2>
-    <p class="meta">Reminders with a <b>Mark used</b> button arrive on your phones through the free <b>ntfy</b> app. Follow the four steps below once for each phone.</p>
+<div class="split">
+  <nav class="side" aria-label="Settings sections">
+    <a href="#reminders">Reminders</a>
+    <a href="#phone">Phone alerts</a>
+    <a href="#email">Email and other alerts</a>
+    <a href="#login">Login and password</a>
+    <a href="#tests">Tests</a>
+  </nav>
 
-    <h3 style="margin:14px 0 4px">1. Address the phones connect to</h3>
-    <form method="post" action="{{ url_for('settings_addresses') }}" class="form">
-      <label>Phone server address <span class="meta">Leave blank to use {{ phone_guess }}{% if guess_is_name %}. You opened this app by name, not by IP address, so enter the address yourself{% endif %}.</span>
-        <input name="phone_address" value="{{ phone_saved }}" placeholder="{{ phone_guess }}">
-      </label>
-      <label>Web address of this app <span class="meta">Used by the Mark used buttons. Filled in the first time you log in. Change it only if it's wrong.</span>
-        <input name="app_address" value="{{ app_saved or app_now }}" placeholder="http://192.168.1.50:8686">
-      </label>
-      <div class="actions"><button class="ghost" type="submit">Save addresses</button></div>
-    </form>
-    <p class="meta"><b>On your home network:</b> use <code>http://</code>, your server's IP address and port <code>2586</code>, such as <code>http://192.168.1.50:2586</code>. Phones away from home need a VPN such as Tailscale to reach it.</p>
-    <p class="meta"><b>Through Cloudflare Tunnel or Nginx Proxy Manager:</b> use <code>https://</code> and your hostname <b>with no port</b>, such as <code>https://ntfy.example.com</code>. The proxy handles the port, so don't add <code>:2586</code>. Point the hostname at port 2586 and turn on WebSocket support.</p>
-    <p class="meta">Phone server status:
-      {% if ntfy.up %}<b style="color:var(--ok)">ready</b>{% else %}<b style="color:var(--overdue)">not responding</b>. If this stays red, restart the container.{% endif %}
-    </p>
+  <div class="stack">
 
-    <h3 style="margin:14px 0 4px">2. Log in to the phone server</h3>
-    <p class="meta">Every phone uses this one login. It can read reminders but not send them.</p>
-    <p class="meta">Username: <code>phone</code><br>Password: <code>{{ ntfy_logins.phone or 'not created yet, restart the container' }}</code></p>
-    <form method="post" action="{{ url_for('settings_ntfy_login', user='phone') }}" class="form" style="margin-top:8px"
-          onsubmit="return confirm('Change the phone password? Every phone will need the new password.');">
-      <label>Your own phone password <span class="meta">(8 to 64 characters, or leave blank to generate one)</span>
-        <input name="password" type="text" minlength="8" maxlength="64" autocomplete="off" spellcheck="false" placeholder="e.g. smith-family-alerts">
-      </label>
-      <div class="actions"><button class="ghost" type="submit">Save phone password</button></div>
-    </form>
-
-    <h3 style="margin:14px 0 4px">3. Choose where alerts go</h3>
-    <form method="post" action="{{ url_for('settings_topic_mode') }}" class="form">
-      <label style="display:flex;gap:8px;align-items:flex-start">
-        <input type="radio" name="topic_mode" value="household" {{ 'checked' if topic_mode == 'household' }} style="margin-top:4px">
-        <span><b>One household topic</b><br><span class="meta">Every phone gets every reminder. New phones only need this one topic.</span></span>
-      </label>
-      <label style="display:flex;gap:8px;align-items:flex-start">
-        <input type="radio" name="topic_mode" value="person" {{ 'checked' if topic_mode == 'person' }} style="margin-top:4px">
-        <span><b>Own topic per person</b><br><span class="meta">Each person's reminders go only to their own topic, which you set on the People page.</span></span>
-      </label>
-      <div class="actions"><button class="ghost" type="submit">Save topic choice</button></div>
-    </form>
-    <p class="meta">Household topic: <code>{{ s.ntfy_url or 'not created yet' }}</code>. You can change it under Default alerts below, or create a new one here.</p>
-    <div class="actions">
-      <form method="post" action="{{ url_for('settings_topic') }}">
-        <button class="ghost" type="submit">{{ 'Create a new household topic' if ntfy.builtin else 'Create a household topic' }}</button>
+    <section id="reminders" class="panel">
+      <div class="sec-head">
+        <h2>Reminders</h2>
+        <p class="meta">When reminders go out, and how long to wait before repeating a card that is still due.</p>
+      </div>
+      <form method="post" action="{{ url_for('settings_save') }}" class="form">
+        <div class="two">
+          <label>Send reminders at (hour, 0 to 23)
+            <input name="notify_hour" type="number" min="0" max="23" value="{{ s.notify_hour }}">
+          </label>
+          <label>Remind again after (days)
+            <input name="renag_days" type="number" min="1" value="{{ s.renag_days }}">
+          </label>
+        </div>
+        <div class="actions"><button class="primary" type="submit">Save reminders</button></div>
       </form>
-    </div>
+    </section>
 
-    <h3 style="margin:14px 0 4px">4. Set up each phone</h3>
-    <ol class="meta">
-      <li>Install the free <b>ntfy</b> app from the App Store or Google Play.</li>
-      <li>In the app, add a user for the server. Enter the <b>phone server address</b> from step 1, username <code>phone</code>, and the password from step 2. Menu names can differ slightly between app versions.</li>
-      <li>Subscribe: tap <b>+</b>, choose that server, and enter the topic name: <code>{{ s.ntfy_url or 'the household topic' }}</code>{% if topic_mode == 'person' %}, or the person's own topic from the People page{% endif %}.</li>
-      <li>Send a test message from this page. It should appear on the phone.</li>
-    </ol>
+    <section id="phone" class="panel">
+      <div class="sec-head">
+        <h2>Phone alerts</h2>
+        <p class="meta">Reminders with a <b>Mark used</b> button arrive on your phones through the free <b>ntfy</b> app.
+          Phone server:
+          {% if ntfy.up %}<span class="pill ok">ready</span>{% else %}<span class="pill" style="color:var(--overdue)">not responding</span>. If this stays red, restart the container.{% endif %}</p>
+      </div>
 
-    <h3 style="margin:14px 0 4px">Admin login (only for you)</h3>
-    <p class="meta">It opens the ntfy web page at <code>{{ phone or 'your phone server address' }}</code>. Log in with username <code>admin</code>.</p>
-    <p class="meta">Username: <code>admin</code><br>Password: <code>{{ ntfy_logins.admin or 'not created yet, restart the container' }}</code></p>
-    <form method="post" action="{{ url_for('settings_ntfy_login', user='admin') }}" class="form" style="margin-top:8px"
-          onsubmit="return confirm('Change the admin password? You will need it to log in to the ntfy web page.');">
-      <label>Your own admin password <span class="meta">(8 to 64 characters, or leave blank to generate one)</span>
-        <input name="password" type="text" minlength="8" maxlength="64" autocomplete="off" spellcheck="false" placeholder="e.g. my-ntfy-admin">
-      </label>
-      <div class="actions"><button class="ghost" type="submit">Save admin password</button></div>
-    </form>
-  </section>
+      <div class="steps">
+        <div class="step">
+          <div class="step-num">1</div>
+          <div class="step-body">
+            <h3>Address the phones connect to</h3>
+            <form method="post" action="{{ url_for('settings_addresses') }}" class="form">
+              <label>Phone server address <span class="meta">Leave blank to use {{ phone_guess }}{% if guess_is_name %}. You opened this app by name, so enter the address yourself{% endif %}.</span>
+                <input name="phone_address" value="{{ phone_saved }}" placeholder="{{ phone_guess }}">
+              </label>
+              <label>Web address of this app <span class="meta">Used by the Mark used buttons. Filled in the first time you log in.</span>
+                <input name="app_address" value="{{ app_saved or app_now }}" placeholder="http://192.168.1.50:8686">
+              </label>
+              <div class="actions"><button class="ghost" type="submit">Save addresses</button></div>
+            </form>
+            <div class="tips">
+              <div class="tip">
+                <b>On your home network</b>
+                <p class="meta">Use <code>http://</code>, your server's IP address and port <code>2586</code>, such as <code>http://192.168.1.50:2586</code>. Phones away from home need a VPN such as Tailscale.</p>
+              </div>
+              <div class="tip">
+                <b>Cloudflare Tunnel or Nginx Proxy Manager</b>
+                <p class="meta">Use <code>https://</code> and your hostname <b>with no port</b>, such as <code>https://ntfy.example.com</code>. The proxy handles the port, so don't add <code>:2586</code>. Point the hostname at port 2586 and turn on WebSocket support.</p>
+              </div>
+            </div>
+          </div>
+        </div>
 
-  <form method="post" action="{{ url_for('settings_save') }}" class="panel form">
-    <h2>Default alerts</h2>
-    <p class="meta">Used for cards with no owner, and for people who haven't set up their own alerts.</p>
-    <label>Household phone topic <span class="meta">Also used for people who have no topic of their own.</span>
-      <input name="ntfy_url" value="{{ s.ntfy_url }}" placeholder="Create one above, or paste an ntfy.sh topic">
-    </label>
-    <label>Email and other alerts, one per line
-      <textarea name="notify_urls" rows="3" placeholder="mailto://user:app-password@gmail.com?to=you@example.com">{{ s.notify_urls }}</textarea>
-    </label>
-    <label>Access token <span class="meta">(only if your ntfy server requires one{% if token_set %}; one is saved, leave blank to keep it{% endif %})</span>
-      <input name="ntfy_token" type="password" autocomplete="off">
-    </label>
-    <h2 style="margin-top:8px">Reminder schedule</h2>
-    <div class="two">
-      <label>Send reminders at (hour, 0 to 23)
-        <input name="notify_hour" type="number" min="0" max="23" value="{{ s.notify_hour }}">
-      </label>
-      <label>Remind again after (days)
-        <input name="renag_days" type="number" min="1" value="{{ s.renag_days }}">
-      </label>
-    </div>
-    <label>Default days between uses
-      <input name="default_interval" type="number" min="1" value="{{ s.default_interval }}">
-    </label>
-    <label>Spread due dates <span class="meta">A card can come up up to this percent of its cycle early, so cards on the same schedule don't all fall on one day. 0 turns this off.</span>
-      <input name="stagger_percent" type="number" min="0" max="50" value="{{ s.stagger_percent }}">
-    </label>
-    <div class="actions"><button class="primary" type="submit">Save settings</button></div>
-  </form>
-  <form method="post" action="{{ url_for('settings_spread') }}" class="form">
-    <p class="meta">Spread the due dates of all active cards now. Use it after changing several cards at once.
-      It only moves due dates within the spread percent above, so nothing is due later than its cycle.</p>
-    <div class="actions"><button class="ghost" type="submit">Spread due dates now</button></div>
-  </form>
-  <form method="post" action="{{ url_for('settings_default_pictures') }}" class="form">
-    <p class="meta">Every card gets a generic picture: a colored card with its issuer and name. This also redraws
-      generic pictures from older versions. Your own pictures are not changed.
-      Use real card art from the link below if you have it.</p>
-    <div class="actions"><button class="ghost" type="submit">Redraw generic card pictures</button>
-      {% if real_art_url %}<a class="ghost" href="{{ real_art_url }}" target="_blank" rel="noopener">Download real card art (zip)</a>{% endif %}</div>
-  </form>
+        <div class="step">
+          <div class="step-num">2</div>
+          <div class="step-body">
+            <h3>Phone login</h3>
+            <p class="meta">Every phone uses this one login. It can read reminders but can't send them.</p>
+            <div class="kv">
+              <div><span class="meta">Username</span><code>phone</code></div>
+              <div><span class="meta">Password</span><code>{{ ntfy_logins.phone or 'not created yet, restart the container' }}</code></div>
+            </div>
+            <form method="post" action="{{ url_for('settings_ntfy_login', user='phone') }}" class="form"
+                  onsubmit="return confirm('Change the phone password? Every phone will need the new password.');">
+              <label>Your own password <span class="meta">8 to 64 characters, or leave blank to generate one</span>
+                <input name="password" type="text" minlength="8" maxlength="64" autocomplete="off" spellcheck="false" placeholder="e.g. smith-family-alerts">
+              </label>
+              <div class="actions"><button class="ghost" type="submit">Save phone password</button></div>
+            </form>
+          </div>
+        </div>
 
-  <section class="panel stack-col">
-    <h2>Card list</h2>
-    {% if pictures_missing %}
-    <div class="toast"><b>{{ pictures_missing|length }} card picture{{ '' if pictures_missing|length == 1 else 's' }} missing.</b>
-      The app can't find {{ 'it' if pictures_missing|length == 1 else 'them' }} in <code>{{ picture_folder }}</code>
-      (in Unraid this is the <code>card-images</code> folder inside your app data folder).
-      If you moved to a new app data folder, copy the whole <code>card-images</code> folder across, or import your picture backup ZIP below.
-      Missing: {{ pictures_missing[:12]|join(', ') }}{{ ' and more' if pictures_missing|length > 12 }}.</div>
-    {% elif pictures_saved %}
-    <p class="meta">{{ pictures_saved }} card picture{{ '' if pictures_saved == 1 else 's' }} saved, all found.
-      Files are named after the card, for example <code>chase-sapphire-preferred.png</code>, so you can replace one by copying a file with that name into <code>{{ picture_folder }}</code>.</p>
-    {% endif %}
-    <p class="meta">The issuers and cards offered in the Add card dropdowns. Removing one only takes it off the list.
-      Cards you already saved are not changed.</p>
-    <form method="post" action="{{ url_for('card_pictures') }}" enctype="multipart/form-data" class="form">
-      <label>Card pictures <span class="meta">Use the files as the issuer named them. Choose several at once, then check each match before saving.</span>
-        <input type="file" name="pictures" multiple accept="image/png,image/jpeg,image/gif,image/webp,.zip">
-      </label>
-      <label>Or a whole folder <span class="meta">Every picture inside the folder is used. A ZIP file of pictures works too.</span>
-        <input type="file" name="pictures" webkitdirectory>
-      </label>
-      <div class="actions"><button class="ghost" type="submit">Upload pictures</button></div>
-    </form>
-    <form method="post" action="{{ url_for('card_pictures_scrape') }}" class="form">
-      <label>Or find pictures on a card issuer's page <span class="meta">Paste the address of a page that lists cards. Only pictures that name a card in your list are used, and you still check each one. Pages that load pictures with scripts won't work.</span>
-        <input type="url" name="url" maxlength="500" placeholder="https://creditcards.chase.com/travel-credit-cards" required>
-      </label>
-      <div class="actions"><button class="ghost" type="submit">Find pictures</button></div>
-    </form>
-    <div class="panel">
-      <h3>Back up and restore pictures</h3>
-      <p class="meta">Export saves every card picture in one ZIP file. On a new installation, import that ZIP and each picture goes to its card straight away, with no review.</p>
-      <div class="actions"><a class="ghost" href="{{ url_for('card_pictures_export') }}">Export pictures (ZIP)</a></div>
-      <form method="post" action="{{ url_for('card_pictures_import') }}" enctype="multipart/form-data" class="form">
-        <label>Import a pictures ZIP <input type="file" name="pack" accept=".zip"></label>
-        <label><input type="checkbox" name="replace" value="1"> Replace pictures that are already saved</label>
-        <div class="actions"><button class="ghost" type="submit">Import pictures</button></div>
-      </form>
-    </div>
-    {% for g in catalog %}
-    <details>
-      <summary><b>{{ g.issuer }}</b> <span class="meta">({{ g.cards|length }} card{{ '' if g.cards|length == 1 else 's' }})</span></summary>
-      <div class="stack-col" style="margin-top:10px">
-        {% for c in g.cards %}
-        <div class="row">
-          <span>{{ c.name }}</span>
-          <form method="post" action="{{ url_for('remove_card') }}">
-            <input type="hidden" name="issuer" value="{{ g.issuer }}">
-            <input type="hidden" name="name" value="{{ c.name }}">
-            <button class="danger" type="submit">Remove card</button>
+        <div class="step">
+          <div class="step-num">3</div>
+          <div class="step-body">
+            <h3>Where alerts go</h3>
+            <form method="post" action="{{ url_for('settings_topic_mode') }}" class="form">
+              <div class="tiles">
+                <label class="tile">
+                  <input type="radio" name="topic_mode" value="household" {{ 'checked' if topic_mode == 'household' }}>
+                  <span><b>One household topic</b><span class="meta">Every phone gets every reminder. New phones need only one topic.</span></span>
+                </label>
+                <label class="tile">
+                  <input type="radio" name="topic_mode" value="person" {{ 'checked' if topic_mode == 'person' }}>
+                  <span><b>Own topic per person</b><span class="meta">Each person's reminders go to their own topic, set on the People page.</span></span>
+                </label>
+              </div>
+              <div class="actions"><button class="ghost" type="submit">Save choice</button></div>
+            </form>
+            <form method="post" action="{{ url_for('settings_save') }}" class="form">
+              <label>Household topic <span class="meta">Also used for people with no topic of their own.</span>
+                <input name="ntfy_url" value="{{ s.ntfy_url }}" placeholder="Create one below, or paste an ntfy.sh topic">
+              </label>
+              <div class="actions"><button class="ghost" type="submit">Save topic</button></div>
+            </form>
+            <form method="post" action="{{ url_for('settings_topic') }}">
+              <button class="ghost" type="submit">{{ 'Create a new household topic' if ntfy.builtin else 'Create a household topic' }}</button>
+            </form>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-num">4</div>
+          <div class="step-body">
+            <h3>Set up each phone</h3>
+            <ol class="plain">
+              <li>Install the free <b>ntfy</b> app from the App Store or Google Play.</li>
+              <li>In the app, add a user for the server: the <b>phone server address</b> from step 1, username <code>phone</code>, and the password from step 2. Menu names can differ slightly between app versions.</li>
+              <li>Subscribe: tap <b>+</b>, choose that server, and enter the topic <code>{{ s.ntfy_url or 'the household topic' }}</code>{% if topic_mode == 'person' %}, or the person's own topic from the People page{% endif %}.</li>
+              <li>Send a test message (see Tests below). It should appear on the phone.</li>
+            </ol>
+          </div>
+        </div>
+      </div>
+
+      <details class="more">
+        <summary>Advanced: admin login and access token</summary>
+        <div class="stack-col">
+          <p class="meta">The admin login opens the ntfy web page at <code>{{ phone or 'your phone server address' }}</code>. Only you need it.</p>
+          <div class="kv">
+            <div><span class="meta">Username</span><code>admin</code></div>
+            <div><span class="meta">Password</span><code>{{ ntfy_logins.admin or 'not created yet, restart the container' }}</code></div>
+          </div>
+          <form method="post" action="{{ url_for('settings_ntfy_login', user='admin') }}" class="form"
+                onsubmit="return confirm('Change the admin password? You will need it to log in to the ntfy web page.');">
+            <label>Your own admin password <span class="meta">8 to 64 characters, or leave blank to generate one</span>
+              <input name="password" type="text" minlength="8" maxlength="64" autocomplete="off" spellcheck="false" placeholder="e.g. my-ntfy-admin">
+            </label>
+            <div class="actions"><button class="ghost" type="submit">Save admin password</button></div>
+          </form>
+          <form method="post" action="{{ url_for('settings_save') }}" class="form">
+            <label>Access token <span class="meta">Only if your ntfy server requires one{% if token_set %}. One is saved; leave blank to keep it{% endif %}.</span>
+              <input name="ntfy_token" type="password" autocomplete="off">
+            </label>
+            <div class="actions"><button class="ghost" type="submit">Save access token</button></div>
           </form>
         </div>
-        {% else %}
-        <p class="meta">No cards in this group yet.</p>
-        {% endfor %}
-        <form method="post" action="{{ url_for('remove_issuer') }}"
-              onsubmit='return confirm({{ ("Remove " ~ g.issuer ~ " and all of its cards from the list? Saved cards are not changed.")|tojson }});'>
-          <input type="hidden" name="issuer" value="{{ g.issuer }}">
-          <button class="danger" type="submit">Remove issuer</button>
+      </details>
+    </section>
+
+    <section id="email" class="panel">
+      <div class="sec-head">
+        <h2>Email and other alerts</h2>
+        <p class="meta">Sent for cards with no owner, and for people who have an email set up on the People page. Put one address on each line, such as <code>mailto://yourname:app-password@gmail.com?to=you@example.com</code>.</p>
+      </div>
+      <form method="post" action="{{ url_for('settings_save') }}" class="form">
+        <label>Alert addresses
+          <textarea name="notify_urls" rows="3" placeholder="mailto://user:app-password@gmail.com?to=you@example.com">{{ s.notify_urls }}</textarea>
+        </label>
+        <div class="actions"><button class="primary" type="submit">Save alerts</button></div>
+      </form>
+    </section>
+
+    <section id="login" class="panel">
+      <div class="sec-head">
+        <h2>Login and password</h2>
+        <p class="meta">The password for this app. Changing it signs out every other browser.</p>
+      </div>
+      <form method="post" action="{{ url_for('change_password') }}" class="form">
+        <div class="two">
+          <label>Current password<input name="current" type="password" autocomplete="current-password" required></label>
+          <label>New password (8+ characters)<input name="new" type="password" minlength="8" autocomplete="new-password" required></label>
+        </div>
+        <div class="actions"><button type="submit">Change password</button></div>
+      </form>
+    </section>
+
+    <section id="tests" class="panel">
+      <div class="sec-head">
+        <h2>Tests</h2>
+        <p class="meta">A test message goes to the household topic and email alerts. Sending due reminders now ignores the repeat delay.</p>
+      </div>
+      <div class="actions">
+        <form method="post" action="{{ url_for('settings_test') }}"><button class="ghost" type="submit">Send test message</button></form>
+        <form method="post" action="{{ url_for('settings_check') }}"><button class="ghost" type="submit">Send due reminders now</button></form>
+      </div>
+    </section>
+
+  </div>
+</div>
+{% endblock %}
+"""
+
+CARD_SETTINGS = r"""{% extends 'base.html' %}
+{% block title %}Card settings · Credit-KeepAlive{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Card settings</h1>
+  <p class="meta">How often cards come due, their pictures, and the issuers and cards you can pick from. Phone and email alerts are on <a href="{{ url_for('settings_page') }}">Settings</a>.</p>
+</div>
+
+<div class="split">
+  <nav class="side" aria-label="Card settings sections">
+    <a href="#due">Due dates</a>
+    <a href="#pictures">Card pictures</a>
+    <a href="#list">Issuers and cards</a>
+  </nav>
+
+  <div class="stack">
+
+    <section id="due" class="panel">
+      <div class="sec-head">
+        <h2>Due dates</h2>
+        <p class="meta">How long a card can wait between uses, and how due dates are spread out.</p>
+      </div>
+      <form method="post" action="{{ url_for('card_settings_save') }}" class="form">
+        <div class="two">
+          <label>Default days between uses <span class="meta">Used for new cards unless a card sets its own.</span>
+            <input name="default_interval" type="number" min="1" value="{{ s.default_interval }}">
+          </label>
+          <label>Spread due dates by up to (percent of the cycle) <span class="meta">Cards on the same schedule don't all fall on one day. 0 turns this off.</span>
+            <input name="stagger_percent" type="number" min="0" max="50" value="{{ s.stagger_percent }}">
+          </label>
+        </div>
+        <div class="actions"><button class="primary" type="submit">Save due dates</button></div>
+      </form>
+      <form method="post" action="{{ url_for('settings_spread') }}" class="subpanel" style="margin-top:14px">
+        <h3>Spread due dates now</h3>
+        <p class="meta">Use this after changing several cards at once. It only moves due dates within the spread percent above, so nothing is due later than its cycle.</p>
+        <div class="actions"><button class="ghost" type="submit">Spread due dates now</button></div>
+      </form>
+    </section>
+
+    <section id="pictures" class="panel">
+      <div class="sec-head">
+        <h2>Card pictures</h2>
+        <p class="meta">Each card shows its picture. A card without one gets a generic picture: a coloured card with its issuer and name.</p>
+      </div>
+      {% if pictures_missing %}
+      <div class="notice">
+        <b>{{ pictures_missing|length }} card picture{{ '' if pictures_missing|length == 1 else 's' }} missing.</b>
+        The app can't find {{ 'it' if pictures_missing|length == 1 else 'them' }} in <code>{{ picture_folder }}</code>.
+        In Unraid this is the <code>card-images</code> folder inside your app data folder. If you moved to a new app data folder, copy the whole folder across, or import your picture backup ZIP below.
+        Missing: {{ pictures_missing[:12]|join(', ') }}{{ ' and more' if pictures_missing|length > 12 }}.
+      </div>
+      {% elif pictures_saved %}
+      <p class="meta">{{ pictures_saved }} card picture{{ '' if pictures_saved == 1 else 's' }} saved, all found. Files are named after the card, for example <code>chase-sapphire-preferred.png</code>, so you can replace one by copying a file with that name into <code>{{ picture_folder }}</code>.</p>
+      {% endif %}
+
+      <div class="two">
+        <form method="post" action="{{ url_for('card_pictures') }}" enctype="multipart/form-data" class="subpanel">
+          <h3>Upload pictures</h3>
+          <label>Picture files <span class="meta">Use the files as the issuer named them. Choose several at once, then check each match before saving.</span>
+            <input type="file" name="pictures" multiple accept="image/png,image/jpeg,image/gif,image/webp,.zip">
+          </label>
+          <label>Or a whole folder <span class="meta">Every picture inside is used. A ZIP of pictures works too.</span>
+            <input type="file" name="pictures" webkitdirectory>
+          </label>
+          <div class="actions"><button class="ghost" type="submit">Upload pictures</button></div>
+        </form>
+
+        <form method="post" action="{{ url_for('card_pictures_scrape') }}" class="subpanel">
+          <h3>Find pictures on an issuer's page</h3>
+          <label>Page address <span class="meta">Only pictures that name a card in your list are used, and you still check each one. Pages that load pictures with scripts won't work.</span>
+            <input type="url" name="url" maxlength="500" placeholder="https://creditcards.chase.com/travel-credit-cards" required>
+          </label>
+          <div class="actions"><button class="ghost" type="submit">Find pictures</button></div>
         </form>
       </div>
-    </details>
-    {% endfor %}
-  </section>
 
-  <section class="panel stack-col">
-    <h2>Tests</h2>
-    <div class="actions">
-      <form method="post" action="{{ url_for('settings_test') }}"><button class="ghost" type="submit">Send test to default alerts</button></form>
-      <form method="post" action="{{ url_for('settings_check') }}"><button class="ghost" type="submit">Send due reminders now</button></form>
-    </div>
-    <p class="meta">Sending reminders now ignores the repeat delay and sends to everyone who should get one right now.</p>
-  </section>
+      <div class="two">
+        <div class="subpanel">
+          <h3>Back up and restore pictures</h3>
+          <p class="meta">Export saves every card picture in one ZIP file. On a new installation, import that ZIP and each picture goes straight to its card, with no review.</p>
+          <div class="actions"><a class="ghost" href="{{ url_for('card_pictures_export') }}">Export pictures (ZIP)</a></div>
+          <form method="post" action="{{ url_for('card_pictures_import') }}" enctype="multipart/form-data" class="form">
+            <label>Import a pictures ZIP <input type="file" name="pack" accept=".zip"></label>
+            <label class="check"><input type="checkbox" name="replace" value="1"> Replace pictures that are already saved</label>
+            <div class="actions"><button class="ghost" type="submit">Import pictures</button></div>
+          </form>
+        </div>
 
-  <form method="post" action="{{ url_for('settings_appearance') }}" class="panel form">
-    <h2>Appearance</h2>
-    <p class="meta">Saved on the server, so every device shows the same look.</p>
-    <div class="two">
-      <label>Light or dark
-        <select name="look_mode">
-          <option value="auto" {{ 'selected' if s.look_mode == 'auto' }}>Follow my device</option>
-          <option value="light" {{ 'selected' if s.look_mode == 'light' }}>Light</option>
-          <option value="dark" {{ 'selected' if s.look_mode == 'dark' }}>Dark</option>
-        </select>
-      </label>
-      <label>Colour theme
-        <select name="look_theme">{% for tid, tname in look_themes %}<option value="{{ tid }}" {{ 'selected' if s.look_theme == tid }}>{{ tname }}</option>{% endfor %}</select>
-      </label>
-    </div>
-    <div class="two">
-      <label>Corner rounding (0 to 24)
-        <input name="look_radius" type="number" min="0" max="24" value="{{ s.look_radius }}">
-      </label>
-      <label>Font
-        <select name="look_font">
-          <option value="" {{ 'selected' if s.look_font == '' }}>Standard</option>
-          <option value="rounded" {{ 'selected' if s.look_font == 'rounded' }}>Rounded</option>
-          <option value="serif" {{ 'selected' if s.look_font == 'serif' }}>Serif</option>
-          <option value="mono" {{ 'selected' if s.look_font == 'mono' }}>Monospace</option>
-        </select>
-      </label>
-    </div>
-    <div class="two">
-      <label>Shadows
-        <select name="look_shadow">
-          <option value="none" {{ 'selected' if s.look_shadow == 'none' }}>None</option>
-          <option value="soft" {{ 'selected' if s.look_shadow == 'soft' }}>Soft</option>
-          <option value="strong" {{ 'selected' if s.look_shadow == 'strong' }}>Strong</option>
-        </select>
-      </label>
-      <label>Page width
-        <select name="look_width">
-          <option value="standard" {{ 'selected' if s.look_width == 'standard' }}>Standard</option>
-          <option value="wide" {{ 'selected' if s.look_width == 'wide' }}>Wide</option>
-          <option value="full" {{ 'selected' if s.look_width == 'full' }}>Full width</option>
-        </select>
-      </label>
-    </div>
-    <div class="actions"><button class="primary" type="submit">Save appearance</button>
-      <button class="ghost" type="submit" name="reset" value="1">Reset to the default look</button></div>
-  </form>
-  <form method="post" action="{{ url_for('change_password') }}" class="panel form">
-    <h2>Change password</h2>
-    <div class="two">
-      <label>Current password<input name="current" type="password" autocomplete="current-password" required></label>
-      <label>New password (8+ characters)<input name="new" type="password" minlength="8" autocomplete="new-password" required></label>
-    </div>
-    <div class="actions"><button type="submit">Change password</button></div>
-  </form>
+        <form method="post" action="{{ url_for('settings_default_pictures') }}" class="subpanel">
+          <h3>Generic pictures</h3>
+          <p class="meta">Redraws the generic picture for every card that uses one, including ones made by older versions. Your own pictures are not changed.</p>
+          <div class="actions">
+            <button class="ghost" type="submit">Redraw generic pictures</button>
+            {% if real_art_url %}<a class="ghost" href="{{ real_art_url }}" target="_blank" rel="noopener">Download real card art (zip)</a>{% endif %}
+          </div>
+        </form>
+      </div>
+    </section>
+
+    <section id="list" class="panel">
+      <div class="sec-head">
+        <h2>Issuers and cards</h2>
+        <p class="meta">The issuers and cards offered in the Add card dropdowns. Removing one only takes it off the list. Cards you already saved are not changed.</p>
+      </div>
+      <div class="actions" style="margin-bottom:14px">
+        <a class="ghost" href="{{ url_for('card_import') }}">Import cards from a CSV</a>
+      </div>
+      <div class="stack-col">
+        {% for g in catalog %}
+        <details class="group">
+          <summary><b>{{ g.issuer }}</b> <span class="meta">({{ g.cards|length }} card{{ '' if g.cards|length == 1 else 's' }})</span></summary>
+          <div class="stack-col" style="margin-top:12px">
+            {% for c in g.cards %}
+            <div class="row">
+              <span>{{ c.name }}</span>
+              <form method="post" action="{{ url_for('remove_card') }}">
+                <input type="hidden" name="issuer" value="{{ g.issuer }}">
+                <input type="hidden" name="name" value="{{ c.name }}">
+                <button class="danger" type="submit">Remove card</button>
+              </form>
+            </div>
+            {% else %}
+            <p class="meta">No cards in this group yet.</p>
+            {% endfor %}
+            <form method="post" action="{{ url_for('remove_issuer') }}"
+                  onsubmit='return confirm({{ ("Remove " ~ g.issuer ~ " and all of its cards from the list? Saved cards are not changed.")|tojson }});'>
+              <input type="hidden" name="issuer" value="{{ g.issuer }}">
+              <button class="danger" type="submit">Remove issuer</button>
+            </form>
+          </div>
+        </details>
+        {% else %}
+        <p class="meta">The list is empty. Add a card from the Add card page to start it.</p>
+        {% endfor %}
+      </div>
+    </section>
+
+  </div>
 </div>
 {% endblock %}
 """
@@ -2492,6 +2700,7 @@ TEMPLATES = {
     "people.html": PEOPLE,
     "history.html": HISTORY,
     "settings.html": SETTINGS,
+    "card_settings.html": CARD_SETTINGS,
     "auth.html": AUTH,
     "confirm.html": CONFIRM,
 }
@@ -2649,6 +2858,14 @@ APP_VERSION = os.environ.get("APP_VERSION", "dev").strip() or "dev"
 def _app_version():
     """Shown in the footer. The build sets it (see the Dockerfile); a local run shows 'dev'."""
     return {"app_version": APP_VERSION}
+
+
+@app.context_processor
+def _look_menu():
+    """The theme menu in the header needs the saved look on every page."""
+    if not session.get("auth"):
+        return {}
+    return {"look_themes": appearance_themes(), "look": {k: get_setting(k) for k in APPEARANCE_DEFAULTS}}
 
 
 def _render(template, **ctx):
@@ -2945,7 +3162,7 @@ def remove_issuer():
         _delete_image(fn)
     remember_removed(issuer=issuer)
     flash(f"Removed {issuer} and its cards from the list. Saved cards are not changed.")
-    return redirect(url_for("settings_page"))
+    return redirect(url_for("card_settings_page"))
 
 
 @app.post("/card-list/card/remove")
@@ -2962,7 +3179,7 @@ def remove_card():
             _delete_image(fn)
     remember_removed(card=(issuer, name))
     flash(f"Removed {name} from the list. Saved cards are not changed.")
-    return redirect(url_for("settings_page"))
+    return redirect(url_for("card_settings_page"))
 
 
 @app.route("/cards/import", methods=["GET", "POST"])
@@ -3182,7 +3399,7 @@ def _stage_and_review(uploads, problems):
     if not entries:
         shutil.rmtree(folder, ignore_errors=True)
         flash("No usable pictures were uploaded." + (" " + "; ".join(problems) if problems else ""))
-        return redirect(url_for("settings_page"))
+        return redirect(url_for("card_settings_page"))
     catalog = list_card_types()
     for e in entries:
         stem = os.path.splitext(e["name"])[0]
@@ -3426,11 +3643,11 @@ def card_pictures_scrape():
     page = request.form.get("url", "").strip()[:500]
     if not page:
         flash("Enter the address of a card page.")
-        return redirect(url_for("settings_page"))
+        return redirect(url_for("card_settings_page"))
     uploads, problems = _scrape_pictures(page)
     if not uploads:
         flash("No card pictures could be taken from that page. " + " ".join(problems))
-        return redirect(url_for("settings_page"))
+        return redirect(url_for("card_settings_page"))
     return _stage_and_review(uploads, problems)
 
 
@@ -3451,7 +3668,7 @@ def card_pictures_confirm():
     folder = _stage_path(request.form.get("token", ""))
     if not os.path.exists(os.path.join(folder, "manifest.json")):
         flash("That review has expired. Upload the pictures again.")
-        return redirect(url_for("settings_page"))
+        return redirect(url_for("card_settings_page"))
     entries = _load_staged(folder)
     known = {(c["issuer"], c["name"]) for c in list_card_types()}
     saved, problems, used = [], [], set()
@@ -3492,7 +3709,7 @@ def card_pictures_confirm():
     if problems:
         msg += " Not saved: " + "; ".join(problems) + "."
     flash(msg)
-    return redirect(url_for("settings_page"))
+    return redirect(url_for("card_settings_page"))
 
 
 # -- card picture backup: export every picture in one ZIP, and import it on another installation
@@ -3535,36 +3752,36 @@ def card_pictures_import():
     f = request.files.get("pack")
     if not f or not f.filename:
         flash("Choose a pictures ZIP file first.")
-        return redirect(url_for("settings_page"))
+        return redirect(url_for("card_settings_page"))
     replace = request.form.get("replace") == "1"
     raw = f.read(MAX_ZIP_BYTES + 1)
     if len(raw) > MAX_ZIP_BYTES:
         flash("That file is larger than 40 MB, so it was not imported.")
-        return redirect(url_for("settings_page"))
+        return redirect(url_for("card_settings_page"))
     try:
         zf = zipfile.ZipFile(io.BytesIO(raw))
     except zipfile.BadZipFile:
         flash("That file is not a valid ZIP file.")
-        return redirect(url_for("settings_page"))
+        return redirect(url_for("card_settings_page"))
     with zf:
         try:
             manifest = json.loads(zf.read("manifest.json").decode("utf-8"))
         except (KeyError, ValueError, UnicodeDecodeError):
             flash("That ZIP has no card list, so it is not a card picture export.")
-            return redirect(url_for("settings_page"))
+            return redirect(url_for("card_settings_page"))
         if not isinstance(manifest, dict) or manifest.get("format") != PICTURE_PACK_FORMAT:
             flash("That ZIP is not a card picture export from this app.")
-            return redirect(url_for("settings_page"))
+            return redirect(url_for("card_settings_page"))
         cards = manifest.get("cards")
         if not isinstance(cards, list):
             flash("That ZIP is not a card picture export from this app.")
-            return redirect(url_for("settings_page"))
+            return redirect(url_for("card_settings_page"))
         if len(cards) > PICTURE_PACK_MAX_CARDS:
             flash(f"That export has more than {PICTURE_PACK_MAX_CARDS} cards, so it was not imported.")
-            return redirect(url_for("settings_page"))
+            return redirect(url_for("card_settings_page"))
         if sum(i.file_size for i in zf.infolist()) > MAX_ZIP_UNPACKED:
             flash("That ZIP is too large once unpacked, so it was not imported.")
-            return redirect(url_for("settings_page"))
+            return redirect(url_for("card_settings_page"))
         conn = db()
         conn.close()
         pictured = image_map()
@@ -3614,7 +3831,7 @@ def card_pictures_import():
     if problems:
         msg += " Not imported: " + "; ".join(problems) + "."
     flash(msg)
-    return redirect(url_for("settings_page"))
+    return redirect(url_for("card_settings_page"))
 
 
 # -- history
@@ -3747,6 +3964,29 @@ def person_test(person_id):
 
 
 # -- settings and actions
+@app.route("/cards/settings")
+def card_settings_page():
+    s = {k: get_setting(k) for k in ("default_interval", "stagger_percent")}
+    pictures_saved, pictures_missing = picture_health()
+    return _render(
+        "card_settings.html", page="card_settings", s=s, catalog=catalog_groups(),
+        pictures_saved=pictures_saved, pictures_missing=pictures_missing,
+        picture_folder=CARD_IMG_DIR, real_art_url=REAL_ART_URL,
+    )
+
+
+@app.post("/cards/settings/save")
+def card_settings_save():
+    for key, lo, hi in (("default_interval", 1, 3650), ("stagger_percent", 0, 50)):
+        if key in request.form:
+            try:
+                set_setting(key, min(hi, max(lo, int(request.form.get(key, "")))))
+            except ValueError:
+                pass
+    flash("Card settings saved.")
+    return redirect(url_for("card_settings_page"))
+
+
 @app.route("/settings")
 def settings_page():
     s = {k: get_setting(k) for k in DEFAULTS if k != "ntfy_token"}
@@ -3775,20 +4015,28 @@ def ntfy_logins():
 
 @app.post("/settings")
 def settings_save():
-    set_setting("ntfy_url", to_stored(request.form.get("ntfy_url", "")))
+    if "ntfy_url" in request.form:
+        set_setting("ntfy_url", to_stored(request.form.get("ntfy_url", "")))
     tok = request.form.get("ntfy_token", "").strip()
     if tok:
         set_setting("ntfy_token", tok)
-    set_setting("notify_urls", "\n".join(
-        l.strip() for l in request.form.get("notify_urls", "").splitlines() if l.strip()))
-    for key, lo, hi in (("notify_hour", 0, 23), ("renag_days", 1, 365), ("default_interval", 1, 3650),
-                        ("stagger_percent", 0, 50)):
-        try:
-            set_setting(key, min(hi, max(lo, int(request.form.get(key, "")))))
-        except ValueError:
-            pass
+    if "notify_urls" in request.form:
+        set_setting("notify_urls", "\n".join(
+            l.strip() for l in request.form.get("notify_urls", "").splitlines() if l.strip()))
+    for key, lo, hi in (("notify_hour", 0, 23), ("renag_days", 1, 365)):
+        if key in request.form:
+            try:
+                set_setting(key, min(hi, max(lo, int(request.form.get(key, "")))))
+            except ValueError:
+                pass
     flash("Settings saved.")
     return redirect(url_for("settings_page"))
+
+
+def _look_back():
+    """Back to the page the theme was changed on. Only same-site paths are used."""
+    back = request.form.get("next", "")
+    return _safe_next(back) if back else url_for("settings_page")
 
 
 @app.post("/settings/appearance")
@@ -3797,7 +4045,7 @@ def settings_appearance():
         for key, value in APPEARANCE_DEFAULTS.items():
             set_setting(key, value)
         flash("The default look is back.")
-        return redirect(url_for("settings_page"))
+        return redirect(_look_back())
     for key, choices in APPEARANCE_CHOICES.items():
         value = request.form.get(key, "")
         if value in choices:
@@ -3807,7 +4055,7 @@ def settings_appearance():
     except ValueError:
         pass
     flash("Appearance saved.")
-    return redirect(url_for("settings_page"))
+    return redirect(_look_back())
 
 
 @app.post("/settings/pictures/defaults")
@@ -3816,7 +4064,7 @@ def settings_default_pictures():
     made = ensure_default_pictures()
     flash(f"Redrew {redrawn} generic card picture{'' if redrawn == 1 else 's'}, and drew "
           f"{made} for cards that had none. Your own pictures were not changed.")
-    return redirect(url_for("settings_page"))
+    return redirect(url_for("card_settings_page"))
 
 
 @app.post("/settings/spread")
@@ -3827,7 +4075,7 @@ def settings_spread():
     conn.close()
     flash(f"Spread {count} active card{'' if count == 1 else 's'} over their cycles. "
           f"They now come up on {days} different day{'' if days == 1 else 's'}.")
-    return redirect(url_for("settings_page"))
+    return redirect(url_for("card_settings_page"))
 
 
 @app.post("/settings/test")

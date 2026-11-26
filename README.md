@@ -61,7 +61,8 @@ log in again on each phone.
   Full card numbers are rejected.
 - **Email** works through Apprise. Add an address in Settings, for example
   `mailto://yourname:app-password@gmail.com?to=you@example.com`.
-- **Appearance** (Settings): colour theme, light or dark, corner rounding, font, shadows and page width.
+- **Card settings**: default days between uses, spreading of due dates, card pictures, and the issuer and card lists.
+- **Theme**: the Theme button in the top bar sets the colour theme, light or dark, corner rounding, font, shadows and page width.
 
 ## Security
 
