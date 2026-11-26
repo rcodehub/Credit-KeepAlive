@@ -15,8 +15,6 @@ repository at `unraid/my-Credit-Keepalive.xml`.
 
 | Setting | Required? | What to enter |
 |---|---|---|
-| Phone server address | Yes, for phone alerts | `http://YOUR-SERVER-IP:2586`, or your proxy hostname |
-| App web address | Yes, for Mark used buttons | `http://YOUR-SERVER-IP:8686`, or your proxy hostname |
 | Login password | No | Leave blank to choose it on your first visit |
 | Time zone | No | Defaults to `America/New_York` |
 | Behind a reverse proxy (`TRUST_PROXY`) | No | Leave blank unless a reverse proxy or Cloudflare Tunnel is in front of the app |
@@ -24,19 +22,23 @@ repository at `unraid/my-Credit-Keepalive.xml`.
 Keep the default ports (`8686` web, `2586` phone) and app data folder unless you need to change them.
 Your data lives in `/mnt/user/appdata/credit-keepalive` (`cards.db` and `card-images`). Back up that folder.
 
-**First run:** open `http://YOUR-SERVER-IP:8686`, set a password if you didn't in the template, then check
-that **Settings → Phone server status** says **ready**.
+**First run:** open `http://YOUR-SERVER-IP:8686`, set a password if you didn't in the template, then open
+**Settings**. The phone address and the app's web address are filled in from the address you opened, so there's
+nothing to enter for a home network. Check that **Phone server status** says **ready**.
 
-**Behind a reverse proxy or Cloudflare Tunnel:** enter your hostname for both addresses (for example
-`https://ntfy.example.com`), point the phone address at port `2586` and the web address at `8686`, turn on
-WebSocket support, use HTTPS, and set `TRUST_PROXY` to `1`.
+**Behind Cloudflare Tunnel or Nginx Proxy Manager:** in **Settings → Phone server address**, enter your
+hostname with `https://` and **no port**, such as `https://ntfy.example.com`. The proxy handles the port, so
+don't add `:2586`. Point that hostname at port `2586`, and point your app hostname at port `8686`. Turn on
+WebSocket support and set `TRUST_PROXY` to `1` in the template.
 
 ## Set up your phone
 
+Settings has these four steps with your own addresses and passwords filled in.
+
 1. Install the free **ntfy** app.
-2. Add the server using the **Phone server address**.
-3. Log in with username `phone` and the password shown in **Settings**.
-4. Subscribe to topics: the default topic in **Settings**, and each person's topic under **People → Alerts**.
+2. In the app, add a user for the server: the **phone server address**, username `phone`, and the password shown in **Settings**.
+3. Choose **One household topic** (every phone gets every reminder) or **Own topic per person** (each person's reminders go only to their own topic). You can switch at any time.
+4. Subscribe to the topic: tap **+**, choose that server, and enter the household topic, or the person's own topic from **People → Alerts**.
 
 Test it with **Settings → Send test to default alerts**. "Test sent" means the phone server accepted the
 message. If nothing arrives within a minute, check the phone is logged in and subscribed to the topic.
@@ -71,6 +73,6 @@ log in again on each phone.
 
 ## Run without Unraid
 
-Put the files from this repository in one folder, change the two addresses in `docker-compose.yml`, then run:
+Put the files from this repository in one folder, then run:
 
     docker compose up -d --build

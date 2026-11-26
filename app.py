@@ -63,6 +63,11 @@ DEFAULTS = {
     "default_interval": os.environ.get("DEFAULT_INTERVAL_DAYS", "45"),
     # How far ahead of its cycle a card may come up, as a percent of the cycle, so cards don't all fall on one day.
     "stagger_percent": "25",
+    # Phone topics: "household" (one topic for everyone) or "person" (each person's own). Blank = worked out from the people.
+    "topic_mode": "",
+    # Addresses for the phone app and the Mark used links. Blank = found automatically.
+    "phone_address": "",
+    "app_address": "",
     # Appearance (see the Appearance section of Settings)
     "look_mode": "auto",
     "look_theme": "default",
@@ -76,13 +81,47 @@ APPEARANCE_DEFAULTS = {k: v for k, v in DEFAULTS.items() if k.startswith("look_"
 
 
 def app_address():
-    """Web address phones use to open this app. Set in the container settings (BASE_URL)."""
-    return os.environ.get("BASE_URL", "").rstrip("/")
+    """Web address of this app, used by the Mark used links. Saved in Settings, or filled in on first login."""
+    return (get_setting("app_address") or os.environ.get("BASE_URL", "")).rstrip("/")
+
+
+def seen_address():
+    """The address this page was opened at, such as http://192.168.1.50:8686 or https://keepalive.example.com."""
+    scheme = request.scheme
+    if TRUST_PROXY and request.headers.get("X-Forwarded-Proto", "").lower() == "https":
+        scheme = "https"
+    return f"{scheme}://{request.host}"
 
 
 def phone_server():
-    """Server address the ntfy phone app connects to. Set in the container settings (NTFY_BASE_URL)."""
-    return os.environ.get("NTFY_BASE_URL", "").rstrip("/")
+    """Address the ntfy app connects to. Saved in Settings, or taken from NTFY_BASE_URL in older setups."""
+    return (get_setting("phone_address") or os.environ.get("NTFY_BASE_URL", "")).rstrip("/")
+
+
+def phone_guess():
+    """Starting point when no phone address is saved: this server's address on the ntfy port."""
+    return f"http://{request.host.split(':')[0]}:2586"
+
+
+def host_is_name():
+    """True when the page was opened by a name such as ntfy.example.com rather than an IP address."""
+    import ipaddress
+    try:
+        ipaddress.ip_address(request.host.split(":")[0])
+        return False
+    except ValueError:
+        return True
+
+
+def topic_mode():
+    """'household': every alert goes to the household topic. 'person': each person's own topic when they have one."""
+    mode = get_setting("topic_mode")
+    if mode in ("household", "person"):
+        return mode
+    conn = db()
+    has_own = conn.execute("SELECT 1 FROM people WHERE ntfy_url != '' LIMIT 1").fetchone() is not None
+    conn.close()
+    return "person" if has_own else "household"
 
 THEMES = [
     ("graphite", "Graphite"), ("ocean", "Ocean"), ("ember", "Ember"), ("forest", "Forest"),
@@ -1323,15 +1362,21 @@ def run_check(force=False):
         return summary
 
     household = (get_setting("ntfy_url").strip(), get_setting("notify_urls"), "Default alerts")
+    own_topics = topic_mode() == "person"
     routes = {}  # key -> (route, [cards])
     for v in due:
         p = people.get(v["owner"].lower()) if v["owner"] else None
         if p is not None and not p["enabled"]:
             summary["skipped"] += 1
             continue
-        if p is not None and (p["ntfy_url"].strip() or p["apprise_urls"].strip()):
+        if p is not None and own_topics and (p["ntfy_url"].strip() or p["apprise_urls"].strip()):
             key = f"person:{p['id']}"
-            route = (p["ntfy_url"].strip(), p["apprise_urls"], p["name"])
+            # Without their own topic, phone alerts fall back to the household topic.
+            route = (p["ntfy_url"].strip() or household[0], p["apprise_urls"], p["name"])
+        elif p is not None and p["apprise_urls"].strip():
+            # Household topic for the phones, plus this person's email or other alerts.
+            key = f"person:{p['id']}"
+            route = (household[0], p["apprise_urls"], p["name"])
         else:
             key = "household"
             route = household
@@ -2041,7 +2086,7 @@ PEOPLE = r"""{% extends 'base.html' %}
       <div>
         <div class="name">{{ p.name }}</div>
         <div class="meta">{{ p.card_count }} card{{ '' if p.card_count == 1 else 's' }} · {{ 'Reminders on' if p.enabled else 'Reminders off' }}
-          · {{ 'own alerts set up' if (p.ntfy_url or p.apprise_urls) else 'uses default alerts' }}</div>
+          · {% if topic_mode == 'household' %}{{ 'household topic' }}{% if p.apprise_urls %} and own alerts{% endif %}{% elif p.ntfy_url or p.apprise_urls %}own alerts set up{% else %}uses default alerts{% endif %}</div>
       </div>
     </div>
     <div class="actions">
@@ -2055,7 +2100,8 @@ PEOPLE = r"""{% extends 'base.html' %}
     <summary>Alerts</summary>
     <div class="stack-col" style="margin-top:12px">
       {% if p.builtin %}
-      <div class="meta">Phone topic <code>{{ p.topic }}</code>{% if p.phone %}. In the ntfy app, add the server <code>{{ p.phone }}</code>, log in with the Phone app login from Settings, and subscribe to this topic.{% endif %}</div>
+      {% if topic_mode == 'household' %}<div class="meta">Phone alerts go to the household topic. To give this person their own topic, choose "Own topic per person" in Settings.</div>{% endif %}
+      {% if p.builtin %}<div class="meta">Own phone topic <code>{{ p.topic }}</code>{% if topic_mode == 'person' %}. Subscribe to this topic in the ntfy app on their phone.{% endif %}</div>{% endif %}
       {% endif %}
       <form method="post" action="{{ url_for('person_topic', person_id=p.id) }}">
         <button class="ghost small" type="submit">{{ 'New phone topic' if p.builtin else 'Create a phone topic' }}</button>
@@ -2148,32 +2194,26 @@ SETTINGS = r"""{% extends 'base.html' %}
 
   <section class="panel stack-col">
     <h2>Phone notifications</h2>
-    {% if phone %}
-    <p class="meta">Reminders with a <b>Mark used</b> button arrive on your phone through the free <b>ntfy</b> app.</p>
-    <ol class="meta">
-      <li>Install the ntfy app from the App Store or Google Play.</li>
-      <li>In the app, add this server: <code>{{ phone }}</code>. If that is a local IP, your phone needs to be on your home network or connected through a VPN such as Tailscale. A hostname through a reverse proxy or Cloudflare Tunnel also works from anywhere.</li>
-      <li>Log in with the <b>Phone app login</b> below. The server doesn't accept anyone without it.</li>
-      <li>Subscribe to the topic for the person, shown on the People page.</li>
-    </ol>
-    {% else %}
-    <p class="meta"><b style="color:var(--overdue)">The phone server address isn't set.</b>
-      Add it in the container settings (Phone server address), then restart the container.</p>
-    {% endif %}
+    <p class="meta">Reminders with a <b>Mark used</b> button arrive on your phones through the free <b>ntfy</b> app. Follow the four steps below once for each phone.</p>
+
+    <h3 style="margin:14px 0 4px">1. Address the phones connect to</h3>
+    <form method="post" action="{{ url_for('settings_addresses') }}" class="form">
+      <label>Phone server address <span class="meta">Leave blank to use {{ phone_guess }}{% if guess_is_name %}. You opened this app by name, not by IP address, so enter the address yourself{% endif %}.</span>
+        <input name="phone_address" value="{{ phone_saved }}" placeholder="{{ phone_guess }}">
+      </label>
+      <label>Web address of this app <span class="meta">Used by the Mark used buttons. Filled in the first time you log in. Change it only if it's wrong.</span>
+        <input name="app_address" value="{{ app_saved or app_now }}" placeholder="http://192.168.1.50:8686">
+      </label>
+      <div class="actions"><button class="ghost" type="submit">Save addresses</button></div>
+    </form>
+    <p class="meta"><b>On your home network:</b> use <code>http://</code>, your server's IP address and port <code>2586</code>, such as <code>http://192.168.1.50:2586</code>. Phones away from home need a VPN such as Tailscale to reach it.</p>
+    <p class="meta"><b>Through Cloudflare Tunnel or Nginx Proxy Manager:</b> use <code>https://</code> and your hostname <b>with no port</b>, such as <code>https://ntfy.example.com</code>. The proxy handles the port, so don't add <code>:2586</code>. Point the hostname at port 2586 and turn on WebSocket support.</p>
     <p class="meta">Phone server status:
       {% if ntfy.up %}<b style="color:var(--ok)">ready</b>{% else %}<b style="color:var(--overdue)">not responding</b>. If this stays red, restart the container.{% endif %}
     </p>
-    <div class="actions">
-      <form method="post" action="{{ url_for('settings_topic') }}">
-        <button class="ghost" type="submit">{{ 'Create a new default topic' if ntfy.builtin else 'Create a default topic' }}</button>
-      </form>
-    </div>
-    {% if ntfy.builtin %}
-    <p class="meta">Default topic to subscribe to in the app: <code>{{ ntfy.topic }}</code></p>
-    {% endif %}
 
-    <h3 style="margin:14px 0 4px">Phone app login</h3>
-    <p class="meta">Every phone uses this one login to receive alerts. It can read alerts but not send them.</p>
+    <h3 style="margin:14px 0 4px">2. Log in to the phone server</h3>
+    <p class="meta">Every phone uses this one login. It can read reminders but not send them.</p>
     <p class="meta">Username: <code>phone</code><br>Password: <code>{{ ntfy_logins.phone or 'not created yet, restart the container' }}</code></p>
     <form method="post" action="{{ url_for('settings_ntfy_login', user='phone') }}" class="form" style="margin-top:8px"
           onsubmit="return confirm('Change the phone password? Every phone will need the new password.');">
@@ -2183,8 +2223,35 @@ SETTINGS = r"""{% extends 'base.html' %}
       <div class="actions"><button class="ghost" type="submit">Save phone password</button></div>
     </form>
 
-    <h3 style="margin:14px 0 4px">ntfy web page login</h3>
-    <p class="meta">Only you need this. It opens the ntfy web page at <code>{{ phone or 'your phone server address' }}</code>. Log in with username <code>admin</code>.</p>
+    <h3 style="margin:14px 0 4px">3. Choose where alerts go</h3>
+    <form method="post" action="{{ url_for('settings_topic_mode') }}" class="form">
+      <label style="display:flex;gap:8px;align-items:flex-start">
+        <input type="radio" name="topic_mode" value="household" {{ 'checked' if topic_mode == 'household' }} style="margin-top:4px">
+        <span><b>One household topic</b><br><span class="meta">Every phone gets every reminder. New phones only need this one topic.</span></span>
+      </label>
+      <label style="display:flex;gap:8px;align-items:flex-start">
+        <input type="radio" name="topic_mode" value="person" {{ 'checked' if topic_mode == 'person' }} style="margin-top:4px">
+        <span><b>Own topic per person</b><br><span class="meta">Each person's reminders go only to their own topic, which you set on the People page.</span></span>
+      </label>
+      <div class="actions"><button class="ghost" type="submit">Save topic choice</button></div>
+    </form>
+    <p class="meta">Household topic: <code>{{ s.ntfy_url or 'not created yet' }}</code>. You can change it under Default alerts below, or create a new one here.</p>
+    <div class="actions">
+      <form method="post" action="{{ url_for('settings_topic') }}">
+        <button class="ghost" type="submit">{{ 'Create a new household topic' if ntfy.builtin else 'Create a household topic' }}</button>
+      </form>
+    </div>
+
+    <h3 style="margin:14px 0 4px">4. Set up each phone</h3>
+    <ol class="meta">
+      <li>Install the free <b>ntfy</b> app from the App Store or Google Play.</li>
+      <li>In the app, add a user for the server. Enter the <b>phone server address</b> from step 1, username <code>phone</code>, and the password from step 2. Menu names can differ slightly between app versions.</li>
+      <li>Subscribe: tap <b>+</b>, choose that server, and enter the topic name: <code>{{ s.ntfy_url or 'the household topic' }}</code>{% if topic_mode == 'person' %}, or the person's own topic from the People page{% endif %}.</li>
+      <li>Send a test message from this page. It should appear on the phone.</li>
+    </ol>
+
+    <h3 style="margin:14px 0 4px">Admin login (only for you)</h3>
+    <p class="meta">It opens the ntfy web page at <code>{{ phone or 'your phone server address' }}</code>. Log in with username <code>admin</code>.</p>
     <p class="meta">Username: <code>admin</code><br>Password: <code>{{ ntfy_logins.admin or 'not created yet, restart the container' }}</code></p>
     <form method="post" action="{{ url_for('settings_ntfy_login', user='admin') }}" class="form" style="margin-top:8px"
           onsubmit="return confirm('Change the admin password? You will need it to log in to the ntfy web page.');">
@@ -2198,7 +2265,7 @@ SETTINGS = r"""{% extends 'base.html' %}
   <form method="post" action="{{ url_for('settings_save') }}" class="panel form">
     <h2>Default alerts</h2>
     <p class="meta">Used for cards with no owner, and for people who haven't set up their own alerts.</p>
-    <label>Default phone topic
+    <label>Household phone topic <span class="meta">Also used for people who have no topic of their own.</span>
       <input name="ntfy_url" value="{{ s.ntfy_url }}" placeholder="Create one above, or paste an ntfy.sh topic">
     </label>
     <label>Email and other alerts, one per line
@@ -2570,6 +2637,8 @@ def gate():
     if not session.get("auth") or session.get("epoch") != get_setting("session_epoch"):
         session.pop("auth", None)
         return redirect(url_for("login", next=request.full_path.rstrip("?")))
+    if not get_setting("app_address") and not os.environ.get("BASE_URL"):
+        set_setting("app_address", seen_address())
     return None
 
 
@@ -3605,7 +3674,7 @@ def people_page():
         d["topic"] = topic_from(p["ntfy_url"]) if d["builtin"] else ""
         d["phone"] = phone_server()
         rows.append(d)
-    return _render("people.html", page="people", people=rows)
+    return _render("people.html", page="people", people=rows, topic_mode=topic_mode())
 
 
 def _person(person_id):
@@ -3690,7 +3759,9 @@ def settings_page():
         pictures_saved=pictures_saved, pictures_missing=pictures_missing, picture_folder=CARD_IMG_DIR,
         real_art_url=REAL_ART_URL,
         token_set=bool(get_setting("ntfy_token")),
-        phone=phone_server(),
+        phone=phone_server(), phone_saved=get_setting("phone_address"), phone_guess=phone_guess(),
+        guess_is_name=host_is_name(), app_saved=get_setting("app_address"), app_now=app_address(),
+        topic_mode=topic_mode(),
         ntfy={"up": phone_server_ready(), "builtin": builtin,
               "topic": topic_from(topic) if builtin else ""},
         ntfy_logins=ntfy_logins(), look_themes=appearance_themes(),
@@ -3803,10 +3874,37 @@ def settings_ntfy_login(user):
     return redirect(url_for("settings_page"))
 
 
+@app.post("/settings/addresses")
+def settings_addresses():
+    values = {}
+    for field, label in (("phone_address", "Phone server address"), ("app_address", "Web address of this app")):
+        value = request.form.get(field, "").strip().rstrip("/")
+        parts = urlparse(value)
+        if value and (parts.scheme not in ("http", "https") or not parts.netloc):
+            flash(f"{label} should look like http://192.168.1.50:2586 or https://ntfy.example.com. Nothing was saved.")
+            return redirect(url_for("settings_page"))
+        values[field] = value
+    for field, value in values.items():
+        set_setting(field, value)
+    flash("Addresses saved.")
+    return redirect(url_for("settings_page"))
+
+
+@app.post("/settings/topic-mode")
+def settings_topic_mode():
+    mode = request.form.get("topic_mode", "")
+    if mode not in ("household", "person"):
+        abort(400)
+    set_setting("topic_mode", mode)
+    flash("Every phone will get every reminder through the household topic." if mode == "household"
+          else "Each person's reminders will go to their own topic.")
+    return redirect(url_for("settings_page"))
+
+
 @app.post("/settings/ntfy/topic")
 def settings_topic():
     set_setting("ntfy_url", builtin_ref(new_topic()))
-    flash("Created a default phone topic. Subscribe to it in the ntfy app on your phone.")
+    flash("Created a household topic. Subscribe to it in the ntfy app on each phone.")
     return redirect(url_for("settings_page"))
 
 

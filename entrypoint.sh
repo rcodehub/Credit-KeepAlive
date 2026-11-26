@@ -3,12 +3,9 @@
 # If either one stops, the container stops and Docker restarts it.
 mkdir -p /data/ntfy
 
-if [ -n "${NTFY_BASE_URL:-}" ]; then
-  # Lets iPhones receive instant push. Only poll requests go to ntfy.sh; message content stays here.
-  export NTFY_UPSTREAM_BASE_URL="https://ntfy.sh"
-else
-  echo "NTFY_BASE_URL is not set, so phone push links will not work. Set it to http://YOUR-SERVER-IP:2586." >&2
-fi
+# Lets iPhones receive instant push. Only poll requests go to ntfy.sh; message content stays here.
+# The phone server address is set in the app's Settings page, so nothing needs to be set here.
+export NTFY_UPSTREAM_BASE_URL="https://ntfy.sh"
 
 trap 'kill $(jobs -p) 2>/dev/null' TERM INT
 
