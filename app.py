@@ -2175,22 +2175,24 @@ SETTINGS = r"""{% extends 'base.html' %}
     <h3 style="margin:14px 0 4px">Phone app login</h3>
     <p class="meta">Every phone uses this one login to receive alerts. It can read alerts but not send them.</p>
     <p class="meta">Username: <code>phone</code><br>Password: <code>{{ ntfy_logins.phone or 'not created yet, restart the container' }}</code></p>
-    <div class="actions">
-      <form method="post" action="{{ url_for('settings_ntfy_login', user='phone') }}"
-            onsubmit="return confirm('Make a new phone password? Every phone will need the new password.');">
-        <button class="ghost" type="submit">Make a new phone password</button>
-      </form>
-    </div>
+    <form method="post" action="{{ url_for('settings_ntfy_login', user='phone') }}" class="form" style="margin-top:8px"
+          onsubmit="return confirm('Change the phone password? Every phone will need the new password.');">
+      <label>Your own phone password <span class="meta">(8 to 64 characters, or leave blank to generate one)</span>
+        <input name="password" type="text" minlength="8" maxlength="64" autocomplete="off" spellcheck="false" placeholder="e.g. smith-family-alerts">
+      </label>
+      <div class="actions"><button class="ghost" type="submit">Save phone password</button></div>
+    </form>
 
     <h3 style="margin:14px 0 4px">ntfy web page login</h3>
     <p class="meta">Only you need this. It opens the ntfy web page at <code>{{ phone or 'your phone server address' }}</code>. Log in with username <code>admin</code>.</p>
     <p class="meta">Username: <code>admin</code><br>Password: <code>{{ ntfy_logins.admin or 'not created yet, restart the container' }}</code></p>
-    <div class="actions">
-      <form method="post" action="{{ url_for('settings_ntfy_login', user='admin') }}"
-            onsubmit="return confirm('Make a new admin password? You will need it to log in to the ntfy web page.');">
-        <button class="ghost" type="submit">Make a new admin password</button>
-      </form>
-    </div>
+    <form method="post" action="{{ url_for('settings_ntfy_login', user='admin') }}" class="form" style="margin-top:8px"
+          onsubmit="return confirm('Change the admin password? You will need it to log in to the ntfy web page.');">
+      <label>Your own admin password <span class="meta">(8 to 64 characters, or leave blank to generate one)</span>
+        <input name="password" type="text" minlength="8" maxlength="64" autocomplete="off" spellcheck="false" placeholder="e.g. my-ntfy-admin">
+      </label>
+      <div class="actions"><button class="ghost" type="submit">Save admin password</button></div>
+    </form>
   </section>
 
   <form method="post" action="{{ url_for('settings_save') }}" class="panel form">
@@ -3782,15 +3784,22 @@ def settings_check():
 def settings_ntfy_login(user):
     if user not in ntfy_acct.LOGIN_USERS:
         abort(404)
+    typed = request.form.get("password", "")
     try:
-        ntfy_acct.regenerate(user)
+        if typed.strip():
+            if typed != typed.strip() or not (8 <= len(typed) <= 64) or any(ord(ch) < 32 for ch in typed):
+                flash("Use 8 to 64 characters with no spaces at the start or end. The password was not changed.")
+                return redirect(url_for("settings_page"))
+            ntfy_acct.set_password(user, typed)
+        else:
+            ntfy_acct.regenerate(user)
     except ntfy_acct.AccountError as e:
         flash(f"Could not change the {user} password. {e}")
     else:
         if user == ntfy_acct.PHONE:
-            flash("New phone password saved. Log in again in the ntfy app on each phone with the new password.")
+            flash("Phone password saved. Log in again in the ntfy app on each phone with the new password.")
         else:
-            flash("New admin password saved. Use it to log in to the ntfy web page.")
+            flash("Admin password saved. Use it to log in to the ntfy web page.")
     return redirect(url_for("settings_page"))
 
 
