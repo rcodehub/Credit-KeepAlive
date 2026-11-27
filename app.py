@@ -6,6 +6,7 @@ scheduler, ntfy push (with tap-to-mark-used buttons), and Apprise for email and
 other alerts. Each person can have their own alerts and be turned off.
 """
 import csv
+import random
 from collections import Counter
 import io
 import json
@@ -961,50 +962,57 @@ def due_window(last_used, interval, today, exact=False):
 
 
 def pick_day(lo, hi, load):
-    """The day in [lo, hi] with the fewest cards already due. Ties go to the later day."""
-    best, best_n = hi, load.get(hi, 0)
-    d = hi - timedelta(days=1)
-    while d >= lo:
-        if load.get(d, 0) < best_n:
-            best, best_n = d, load.get(d, 0)
-        d -= timedelta(days=1)
-    return best
+    """A random day in [lo, hi], chosen from the days with the fewest cards already due so cards stay spread out."""
+    days = [lo + timedelta(days=i) for i in range((hi - lo).days + 1)]
+    least = min(load.get(d, 0) for d in days)
+    return random.choice([d for d in days if load.get(d, 0) == least])
 
 
 def plan_saved_card(conn, card_id):
     """Pick the planned due date for one saved card, on a day with few other cards due."""
-    row = conn.execute("SELECT id, last_used, interval_days, active, exact_day FROM cards WHERE id=?", (card_id,)).fetchone()
+    row = conn.execute("SELECT id, owner, last_used, interval_days, active, exact_day FROM cards WHERE id=?", (card_id,)).fetchone()
     if row is None:
         return None
     if not row["active"]:
         conn.execute("UPDATE cards SET due_on=NULL WHERE id=?", (card_id,))
         return None
     lo, hi = due_window(row["last_used"], row["interval_days"], date.today(), bool(row["exact_day"]))
-    load = Counter(card_due_date(r) for r in conn.execute("SELECT * FROM cards WHERE active=1 AND id!=?", (card_id,)))
+    load = Counter(card_due_date(r) for r in conn.execute(
+        "SELECT * FROM cards WHERE active=1 AND id!=? AND LOWER(TRIM(owner))=?",
+        (card_id, owner_key(row["owner"]))))
     day = pick_day(lo, hi, load)
     conn.execute("UPDATE cards SET due_on=? WHERE id=?", (day.isoformat(), card_id))
     return day
 
 
+def owner_key(owner):
+    """The owner's name as the spread compares it: trimmed and lowercase. Cards without an owner share one group."""
+    return (owner or "").strip().lower()
+
+
 def spread_all_cards(conn):
     """Plan a due date for every active card so they don't pile onto the same days.
 
+    Each owner's cards are spread among that owner's own cards only, because credit use is individual.
     Cards with the tightest windows are placed first. Returns (cards planned, days used).
     """
     today = date.today()
-    rows = conn.execute("SELECT id, last_used, interval_days, exact_day FROM cards WHERE active=1").fetchall()
+    rows = conn.execute("SELECT id, owner, last_used, interval_days, exact_day FROM cards WHERE active=1").fetchall()
     windows = []
     for r in rows:
         lo, hi = due_window(r["last_used"], r["interval_days"], today, bool(r["exact_day"]))
-        windows.append((hi, r["id"], lo))
+        windows.append((hi, r["id"], lo, owner_key(r["owner"])))
     windows.sort()
-    load = Counter()
-    for hi, cid, lo in windows:
+    loads = {}
+    days_used = set()
+    for hi, cid, lo, owner in windows:
+        load = loads.setdefault(owner, Counter())
         day = pick_day(lo, hi, load)
         load[day] += 1
+        days_used.add(day)
         conn.execute("UPDATE cards SET due_on=? WHERE id=?", (day.isoformat(), cid))
     conn.execute("UPDATE cards SET due_on=NULL WHERE active=0")
-    return len(windows), len(load)
+    return len(windows), len(days_used)
 
 
 def card_view(card, images=None):
@@ -2645,7 +2653,7 @@ CARD_SETTINGS = r"""{% extends 'base.html' %}
       </div>
       <div class="notice"><p><b>What the spread percentage does.</b> Each card's cycle ends a set number of days after
         it was last used. With spreading on, a card can come up early, up to this many days before its cycle end, and
-        the app picks the least busy day in that range so cards don't pile up. With {{ s.default_interval }} days and
+        the app picks a random day in that range, favouring the least busy days. Each owner's cards are spread among their own cards only. With {{ s.default_interval }} days and
         {{ s.stagger_percent }}%, that is up to {{ example_early }} days early. At 0% every card comes up on its cycle end.
         Saving this re-plans every active card. Cards set to a fixed due date always come up on their cycle end and are not moved.
         Overdue cards are due today.</p></div>
@@ -4819,7 +4827,7 @@ def overview_page():
             else:
                 item.update(window=f"{_day_label(lo)} to {_day_label(hi)}",
                             spread=f"Can come up up to {early} day{'s' if early != 1 else ''} early, "
-                                   "on the least busy day in that range.")
+                                   "on a random day in that range, favouring the least busy days among this owner's cards.")
         buckets.setdefault(r["owner"] or "", []).append(item)
     groups = [{"name": owner or "Unassigned", "cards": buckets[owner]}
               for owner in sorted(buckets, key=lambda n: (n == "", n.lower()))]

@@ -4,6 +4,8 @@ Newest day first. Within a day, the latest change is listed first.
 
 ### 2026-11-26
 
+- Due dates are spread per owner. Each person's cards are spread only among that person's own cards, so one owner's schedule no longer affects another's. Owner names match regardless of capital letters or extra spaces.
+- Spread due dates: every card with spreading on now gets a random day in its window, favouring the least busy days. Before, the choice was deterministic and often landed on the cycle end. Only cards with Fixed due date stay on their cycle end. Card intervals don't change this.
 - Card Settings: the spread percentage now has a note that explains what it does, with the number of days early for the default cycle. Saving it re-plans every active card.
 - Fixed due date (per card, Edit Card): tick it to keep the card on its cycle end, never on a random day. Spread Due Dates Now and saving settings leave these cards alone.
 - Overview page (new, in the top menu): a read-only page of every card grouped by owner, with its last use, next due date, the days it can come up, and how it is spread.
