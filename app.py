@@ -9,6 +9,7 @@ import csv
 from collections import Counter
 import io
 import json
+import tempfile
 import shutil
 import os
 import subprocess
@@ -22,7 +23,7 @@ import ipaddress
 import socket
 import urllib.robotparser
 from html.parser import HTMLParser
-from urllib.parse import unquote, urljoin
+from urllib.parse import unquote, urldefrag, urljoin
 from datetime import date, datetime, timedelta
 from urllib.parse import urlparse
 from urllib.error import HTTPError, URLError
@@ -32,7 +33,7 @@ import apprise
 import ntfy_accounts as ntfy_acct
 from apscheduler.schedulers.background import BackgroundScheduler
 from flask import (Flask, Response, abort, flash, redirect, render_template, request,
-                   send_from_directory, session, url_for)
+                   after_this_request, send_file, send_from_directory, session, url_for)
 from jinja2 import DictLoader
 from werkzeug.security import check_password_hash, generate_password_hash
 import ipaddress
@@ -44,6 +45,12 @@ MAX_IMAGE_BYTES = 4 * 1024 * 1024
 MAX_ZIP_BYTES = 40 * 1024 * 1024
 MAX_ZIP_UNPACKED = 200 * 1024 * 1024
 MAX_PICTURES = 200
+RESTORE_MAX_BYTES = 512 * 1024 * 1024    # the largest backup zip that can be restored
+RESTORE_MAX_UNPACKED = 2 * 1024 * 1024 * 1024
+OTHER_MAX_BYTES = 6 * 1024 * 1024        # every other form and upload
+BACKUP_FORMAT = "credit-keepalive-backup"
+BACKUP_VERSION = 1
+BACKUP_FILE = re.compile(r"(manifest\.json|cards\.db|card-images/.+|ntfy/.+)")
 PICTURE_EXTS = (".png", ".jpg", ".jpeg", ".gif", ".webp")
 IMPORT_MAX_ROWS = 500
 IMPORT_MAX_BYTES = 256 * 1024
@@ -1500,9 +1507,13 @@ APPEARANCE_CHOICES = {
 
 def current_look():
     """The saved look, with anything unknown or out of range put back to its default."""
+    return _clean_look(get_setting)
+
+
+def _clean_look(read):
     look = {}
     for key, default in APPEARANCE_DEFAULTS.items():
-        value = get_setting(key)
+        value = read(key)
         if key in APPEARANCE_CHOICES and value not in APPEARANCE_CHOICES[key]:
             value = default
         look[key] = value if value is not None else default
@@ -1513,9 +1524,9 @@ def current_look():
     return look
 
 
-def look_css():
-    """CSS that restyles the page for the saved theme. Goes after the main stylesheet, so it wins."""
-    look = current_look()
+def look_css(values=None):
+    """CSS that restyles the page for the saved theme, or for the given choices. Goes after the main stylesheet, so it wins."""
+    look = current_look() if values is None else _clean_look(lambda k: values.get(k))
     theme = THEME_BY_ID.get(look["look_theme"], APPEARANCE_THEMES[0])
     light, dark = theme[2], theme[3]
     shadow_light, shadow_dark = SHADOWS[look["look_shadow"]]
@@ -1767,7 +1778,7 @@ BASE = r"""<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <title>{% block title %}Credit-KeepAlive{% endblock %}</title>
-<style>{{ css|safe }}</style><style>{{ look_css|safe }}</style>
+<style>{{ css|safe }}</style><style id="look-css">{{ look_css|safe }}</style>
 </head>
 <body>
 <header class="top"><div class="wrap topbar">
@@ -1777,11 +1788,11 @@ BASE = r"""<!doctype html>
     <a href="{{ url_for('index') }}" class="{{ 'on' if page == 'dashboard' }}">Cards</a>
     <a href="{{ url_for('people_page') }}" class="{{ 'on' if page == 'people' }}">People</a>
     <a href="{{ url_for('history_page') }}" class="{{ 'on' if page == 'history' }}">History</a>
-    <a href="{{ url_for('card_settings_page') }}" class="{{ 'on' if page == 'card_settings' }}">Card settings</a>
+    <a href="{{ url_for('card_settings_page') }}" class="{{ 'on' if page == 'card_settings' }}">Card Settings</a>
     <a href="{{ url_for('settings_page') }}" class="{{ 'on' if page == 'settings' }}">Settings</a>
   </nav>
   <a class="ghost small" href="{{ url_for('card_import') }}">Import</a>
-  <a class="btn primary small" href="{{ url_for('card_new') }}">+ Add card</a>
+  <a class="btn primary small" href="{{ url_for('card_new') }}">+ Add Card</a>
   <details class="theme-menu">
     <summary class="ghost">Theme</summary>
     <div class="theme-panel">
@@ -1791,7 +1802,7 @@ BASE = r"""<!doctype html>
         <p class="meta">Saved on the server, so every device shows the same look.</p>
         <label>Light or dark
           <select name="look_mode">
-            <option value="auto" {{ 'selected' if look.look_mode == 'auto' }}>Follow my device</option>
+            <option value="auto" {{ 'selected' if look.look_mode == 'auto' }}>Follow My Device</option>
             <option value="light" {{ 'selected' if look.look_mode == 'light' }}>Light</option>
             <option value="dark" {{ 'selected' if look.look_mode == 'dark' }}>Dark</option>
           </select>
@@ -1824,18 +1835,18 @@ BASE = r"""<!doctype html>
             <select name="look_width">
               <option value="standard" {{ 'selected' if look.look_width == 'standard' }}>Standard</option>
               <option value="wide" {{ 'selected' if look.look_width == 'wide' }}>Wide</option>
-              <option value="full" {{ 'selected' if look.look_width == 'full' }}>Full width</option>
+              <option value="full" {{ 'selected' if look.look_width == 'full' }}>Full Width</option>
             </select>
           </label>
         </div>
         <div class="actions">
-          <button class="primary small" type="submit">Save look</button>
+          <button class="primary small" type="submit">Save Look</button>
           <button class="ghost" type="submit" name="reset" value="1">Reset</button>
         </div>
       </form>
     </div>
   </details>
-  <form method="post" action="{{ url_for('logout') }}"><button class="ghost small" type="submit">Log out</button></form>
+  <form method="post" action="{{ url_for('logout') }}"><button class="ghost small" type="submit">Log Out</button></form>
   {% endif %}
 </div></header>
 <main class="wrap">
@@ -1843,6 +1854,40 @@ BASE = r"""<!doctype html>
 {% block content %}{% endblock %}
 </main>
 <footer class="wrap meta" style="padding:18px 0 28px;text-align:center">Credit-KeepAlive version {{ app_version }}</footer>
+<script>
+(function () {
+  var panel = document.querySelector('.theme-panel form');
+  var box = document.getElementById('look-css');
+  if (!panel || !box) return;
+  var details = panel.closest('details');
+  var savedCss = box.textContent, savedMode = document.documentElement.getAttribute('data-mode');
+  var timer = null, seq = 0, submitting = false;
+  var keys = ['look_mode', 'look_theme', 'look_radius', 'look_font', 'look_shadow', 'look_width'];
+  function apply() {
+    var mode = panel.elements.look_mode.value;
+    if (mode === 'auto') document.documentElement.removeAttribute('data-mode');
+    else document.documentElement.setAttribute('data-mode', mode);
+    var params = new URLSearchParams();
+    keys.forEach(function (k) { params.set(k, panel.elements[k].value); });
+    var n = ++seq;
+    fetch('{{ url_for('settings_look_preview') }}?' + params.toString(), {credentials: 'same-origin'})
+      .then(function (r) { if (!r.ok) throw new Error('preview'); return r.text(); })
+      .then(function (css) { if (n === seq) box.textContent = css; })
+      .catch(function () {});
+  }
+  function schedule() { clearTimeout(timer); timer = setTimeout(apply, 150); }
+  panel.addEventListener('input', schedule);
+  panel.addEventListener('change', schedule);
+  panel.addEventListener('submit', function () { submitting = true; });
+  if (details) details.addEventListener('toggle', function () {
+    if (details.open || submitting) return;
+    clearTimeout(timer); seq++;
+    box.textContent = savedCss;
+    if (savedMode === null) document.documentElement.removeAttribute('data-mode');
+    else document.documentElement.setAttribute('data-mode', savedMode);
+  });
+})();
+</script>
 </body>
 </html>
 """
@@ -1870,7 +1915,7 @@ DASHBOARD = r"""{% extends 'base.html' %}
 {% endif %}
 <div class="hero">
   <div>
-    <h1>Your cards</h1>
+    <h1>Your Cards</h1>
     <p class="meta">{{ stats.active }} active · {{ stats.due }} due now{% if stats.paused %} · {{ stats.paused }} paused{% endif %}</p>
   </div>
   {% if stats.next %}
@@ -1920,8 +1965,8 @@ DASHBOARD = r"""{% extends 'base.html' %}
         <div class="meta">Every {{ c.interval_days }} days · last used {{ c.last_used or 'never' }}</div>
         <div class="actions">
           {% if c.active %}
-          <form method="post" action="{{ url_for('used', card_id=c.id) }}"><button class="primary small" type="submit">Mark used today</button></form>
-          <details class="other"><summary>Other date</summary>
+          <form method="post" action="{{ url_for('used', card_id=c.id) }}"><button class="primary small" type="submit">Mark Used Today</button></form>
+          <details class="other"><summary>Other Date</summary>
             <form method="post" action="{{ url_for('used', card_id=c.id) }}" class="actions" style="margin-top:8px">
               <input type="date" name="used_on" value="{{ today }}" max="{{ today }}">
               <button class="ghost small" type="submit">Save</button>
@@ -1938,9 +1983,9 @@ DASHBOARD = r"""{% extends 'base.html' %}
 </section>
 {% else %}
 <div class="panel empty">
-  <h2>No cards here yet</h2>
+  <h2>No Cards Here Yet</h2>
   <p class="meta">Add a card and pick a color. You can group cards by owner and choose who gets reminders.</p>
-  <a class="btn primary" href="{{ url_for('card_new') }}">Add your first card</a>
+  <a class="btn primary" href="{{ url_for('card_new') }}">Add Your First Card</a>
 </div>
 {% endfor %}
 {% endblock %}
@@ -1948,7 +1993,7 @@ DASHBOARD = r"""{% extends 'base.html' %}
 
 CARD_FORM = r"""{% extends 'base.html' %}
 {% from 'macros.html' import cardface %}
-{% block title %}{{ 'Edit card' if editing else 'Add card' }} · Credit-KeepAlive{% endblock %}
+{% block title %}{{ 'Edit Card' if editing else 'Add Card' }} · Credit-KeepAlive{% endblock %}
 {% block content %}
 <h1>{{ 'Edit card' if editing else 'Add a card' }}</h1>
 <p class="meta" style="margin-bottom:18px">Only store the last 4 digits. Never enter full card numbers.</p>
@@ -1957,16 +2002,16 @@ CARD_FORM = r"""{% extends 'base.html' %}
     <div class="two">
       <label>Issuer
         <select name="issuer" id="issuer">
-          <option value="">Choose an issuer</option>
+          <option value="">Choose an Issuer</option>
           {% for name in issuers %}<option value="{{ name }}" {{ 'selected' if name|lower == (card.issuer or '')|lower }}>{{ name }}</option>{% endfor %}
-          <option value="__new__">+ Add a new issuer</option>
+          <option value="__new__">+ Add a New Issuer</option>
         </select>
       </label>
       <label>Card
         <select name="card_type" id="card_type">
-          <option value="">Choose a card</option>
+          <option value="">Choose a Card</option>
           {% for t in card_types %}<option value="{{ t.name }}" data-issuer="{{ t.issuer }}" data-image="{{ t.image or '' }}" data-generic="{{ '1' if t.generic else '' }}" {{ 'selected' if t.selected }}>{{ t.name }}</option>{% endfor %}
-          <option value="__new__">+ Add a new card</option>
+          <option value="__new__">+ Add a New Card</option>
         </select>
       </label>
     </div>
@@ -2028,7 +2073,7 @@ CARD_FORM = r"""{% extends 'base.html' %}
 {% if editing %}
 <form method="post" action="{{ url_for('card_delete', card_id=card_id) }}" style="margin-top:18px"
       onsubmit="return confirm('Delete this card and its history?');">
-  <button class="danger" type="submit">Delete card</button>
+  <button class="danger" type="submit">Delete Card</button>
 </form>
 {% endif %}
 <script>
@@ -2098,9 +2143,9 @@ CARD_FORM = r"""{% extends 'base.html' %}
 """
 
 CARD_IMPORT = r"""{% extends 'base.html' %}
-{% block title %}Import cards · Credit-KeepAlive{% endblock %}
+{% block title %}Import Cards · Credit-KeepAlive{% endblock %}
 {% block content %}
-<h1>Import cards</h1>
+<h1>Import Cards</h1>
 {% if stage == 'upload' %}
 <p class="meta" style="margin-bottom:18px">Add many cards at once from the Excel template or a CSV file. You'll check the list before anything is saved.</p>
 <form method="post" enctype="multipart/form-data" class="panel form" style="max-width:640px">
@@ -2108,13 +2153,13 @@ CARD_IMPORT = r"""{% extends 'base.html' %}
     <input type="file" name="csv_file" accept=".xlsx,.csv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required>
   </label>
   <div class="actions">
-    <button class="primary" type="submit">Check file</button>
-    <a class="ghost" href="{{ url_for('card_import_template') }}">Download the Excel template</a>
-    <a class="ghost" href="{{ url_for('card_import_sample') }}">Download a CSV sample</a>
+    <button class="primary" type="submit">Check File</button>
+    <a class="ghost" href="{{ url_for('card_import_template') }}">Download the Excel Template</a>
+    <a class="ghost" href="{{ url_for('card_import_sample') }}">Download a CSV Sample</a>
   </div>
 </form>
 <section class="panel" style="margin-top:18px;max-width:640px">
-  <h2>File format</h2>
+  <h2>File Format</h2>
   <p class="meta">One card per line, with these columns: <code>Issuer,Card,Last4,Owner</code>.
     The first line can be that header row. Only <b>Card</b> is required.</p>
   <p class="meta">The Excel template has dropdowns: pick the issuer, and the card list shows that issuer's cards.
@@ -2131,7 +2176,7 @@ American Express,Blue Cash Everyday,5678,Dad</pre>
   </ul>
 </section>
 {% else %}
-<p class="meta" style="margin-bottom:12px">Check each line. Only the rows marked <b>Will add</b> are saved.</p>
+<p class="meta" style="margin-bottom:12px">Check each line. Only the rows marked <b>Will Add</b> are saved.</p>
 <div class="panel" style="overflow-x:auto">
 <table>
   <tr><th>Line</th><th>Issuer</th><th>Card</th><th>Last 4</th><th>Owner</th><th>Result</th></tr>
@@ -2142,7 +2187,7 @@ American Express,Blue Cash Everyday,5678,Dad</pre>
     <td>{{ e.card or '—' }}</td>
     <td>{{ e.last4 or '—' }}</td>
     <td>{{ e.owner or '—' }}</td>
-    <td>{% if e.status == 'add' %}<span class="pill ok">Will add</span>{% elif e.status == 'duplicate' %}<span class="pill">Skipped</span>{% else %}<span class="pill off">{{ e.message }}</span>{% endif %}
+    <td>{% if e.status == 'add' %}<span class="pill ok">Will Add</span>{% elif e.status == 'duplicate' %}<span class="pill">Skipped</span>{% else %}<span class="pill off">{{ e.message }}</span>{% endif %}
       {% if e.status == 'duplicate' %}<span class="meta">{{ e.message }}</span>{% endif %}</td>
   </tr>
   {% else %}
@@ -2153,8 +2198,8 @@ American Express,Blue Cash Everyday,5678,Dad</pre>
 <form method="post" action="{{ url_for('card_import_confirm') }}" style="margin-top:16px">
   <input type="hidden" name="rows" value="{{ rows_json }}">
   <div class="actions">
-    <button class="primary" type="submit" {{ 'disabled' if not to_add }}>Add {{ to_add }} card{{ '' if to_add == 1 else 's' }}</button>
-    <a class="ghost" href="{{ url_for('card_import') }}">Choose a different file</a>
+    <button class="primary" type="submit" {{ 'disabled' if not to_add }}>Add {{ to_add }} Card{{ '' if to_add == 1 else 's' }}</button>
+    <a class="ghost" href="{{ url_for('card_import') }}">Choose a Different File</a>
   </div>
 </form>
 {% endif %}
@@ -2162,17 +2207,17 @@ American Express,Blue Cash Everyday,5678,Dad</pre>
 """
 
 CARD_PICTURES = r"""{% extends 'base.html' %}
-{% block title %}Check pictures · Credit-KeepAlive{% endblock %}
+{% block title %}Check Pictures · Credit-KeepAlive{% endblock %}
 {% block content %}
-<h1>Check card pictures</h1>
+<h1>Check Card Pictures</h1>
 <p class="meta" style="margin-bottom:12px">Each file is matched to a card by its name. Check the picks, change any that are wrong,
-  and choose Skip for files you don't want. Nothing is saved until you click <b>Save pictures</b>.</p>
+  and choose Skip for files you don't want. Nothing is saved until you click <b>Save Pictures</b>.</p>
 {% for p in problems %}<div class="toast">{{ p }}</div>{% endfor %}
 <form method="post" action="{{ url_for('card_pictures_confirm') }}">
   <input type="hidden" name="token" value="{{ token }}">
   <div class="panel" style="overflow-x:auto">
   <table>
-    <tr><th>Picture</th><th>File</th><th>Card</th><th>How it was matched</th></tr>
+    <tr><th>Picture</th><th>File</th><th>Card</th><th>How It Was Matched</th></tr>
     {% for e in entries %}
     <tr>
       <td><img src="{{ url_for('staged_picture', token=token, idx=e.idx) }}" alt="" style="width:110px;border-radius:10px;display:block"></td>
@@ -2192,7 +2237,7 @@ CARD_PICTURES = r"""{% extends 'base.html' %}
     {% endfor %}
   </table></div>
   <div class="actions" style="margin-top:14px">
-    <button class="primary" type="submit">Save pictures</button>
+    <button class="primary" type="submit">Save Pictures</button>
     <a class="ghost" href="{{ url_for('settings_page') }}">Cancel</a>
   </div>
 </form>
@@ -2235,7 +2280,7 @@ PEOPLE = r"""{% extends 'base.html' %}
       <form method="post" action="{{ url_for('person_toggle', person_id=p.id) }}">
         <button class="ghost" type="submit">{{ 'Turn reminders off' if p.enabled else 'Turn reminders on' }}</button>
       </form>
-      <a class="ghost" href="{{ url_for('card_new', owner=p.name) }}">+ Add card</a>
+      <a class="ghost" href="{{ url_for('card_new', owner=p.name) }}">+ Add Card</a>
     </div>
   </div>
   <details class="chan">
@@ -2256,13 +2301,13 @@ PEOPLE = r"""{% extends 'base.html' %}
       <label>Email and other alerts, one per line
         <textarea name="apprise_urls" rows="2" placeholder="mailto://user:app-password@gmail.com?to=them@example.com">{{ p.apprise_urls }}</textarea>
       </label>
-      <div class="actions"><button class="primary small" type="submit">Save alerts</button></div>
+      <div class="actions"><button class="primary small" type="submit">Save Alerts</button></div>
     </form>
     <div class="actions" style="margin-top:12px">
-      <form method="post" action="{{ url_for('person_test', person_id=p.id) }}"><button class="ghost small" type="submit">Send test</button></form>
+      <form method="post" action="{{ url_for('person_test', person_id=p.id) }}"><button class="ghost small" type="submit">Send Test</button></form>
       <form method="post" action="{{ url_for('person_delete', person_id=p.id) }}"
             onsubmit='return confirm({{ ("Remove " ~ p.name ~ "? Their cards stay.")|tojson }});'>
-        <button class="danger" type="submit">Remove person</button>
+        <button class="danger" type="submit">Remove Person</button>
       </form>
     </div>
   </details>
@@ -2272,7 +2317,7 @@ PEOPLE = r"""{% extends 'base.html' %}
 {% endfor %}
 <form method="post" action="{{ url_for('person_add') }}" class="panel actions">
   <input name="name" placeholder="Name, e.g. Mom" required style="max-width:280px">
-  <button class="primary" type="submit">Add person</button>
+  <button class="primary" type="submit">Add Person</button>
 </form>
 </div>
 {% endblock %}
@@ -2285,9 +2330,9 @@ HISTORY = r"""{% extends 'base.html' %}
 <p class="meta" style="margin-bottom:18px">Every logged use. Undo removes an entry and recalculates the card's last-used date.</p>
 <div class="stack">
   <section class="panel">
-    <h2 style="margin-bottom:10px">By card</h2>
+    <h2 style="margin-bottom:10px">By Card</h2>
     <table>
-      <tr><th>Card</th><th>Owner</th><th>Uses logged</th><th>Last used</th></tr>
+      <tr><th>Card</th><th>Owner</th><th>Uses Logged</th><th>Last Used</th></tr>
       {% for s in summary %}
       <tr>
         <td><a href="{{ url_for('history_page', card=s.id) }}">{{ s.issuer }} {{ s.nickname }}</a></td>
@@ -2300,11 +2345,11 @@ HISTORY = r"""{% extends 'base.html' %}
   <section class="panel">
     <div class="row" style="margin-bottom:10px">
       <h2>{{ 'Log for ' ~ filter_name if filter_name else 'Recent uses' }}</h2>
-      {% if filter_name %}<a class="meta" href="{{ url_for('history_page') }}">Show all cards</a>{% endif %}
+      {% if filter_name %}<a class="meta" href="{{ url_for('history_page') }}">Show All Cards</a>{% endif %}
     </div>
     {% if not entries %}<p class="meta">Nothing logged yet.</p>{% else %}
     <table>
-      <tr><th>Date used</th><th>Card</th><th>How</th><th>Logged</th><th></th></tr>
+      <tr><th>Date Used</th><th>Card</th><th>How</th><th>Logged</th><th></th></tr>
       {% for e in entries %}
       <tr>
         <td>{{ e.used_on }}</td>
@@ -2332,15 +2377,16 @@ SETTINGS = r"""{% extends 'base.html' %}
 {% block content %}
 <div class="page-head">
   <h1>Settings</h1>
-  <p class="meta">Reminders, phone alerts and your login. Card-related settings are on <a href="{{ url_for('card_settings_page') }}">Card settings</a>.</p>
+  <p class="meta">Reminders, phone alerts and your login. Card-related settings are on <a href="{{ url_for('card_settings_page') }}">Card Settings</a>.</p>
 </div>
 
 <div class="split">
   <nav class="side" aria-label="Settings sections">
     <a href="#reminders">Reminders</a>
-    <a href="#phone">Phone alerts</a>
-    <a href="#email">Email and other alerts</a>
-    <a href="#login">Login and password</a>
+    <a href="#phone">Phone Alerts</a>
+    <a href="#email">Email and Other Alerts</a>
+    <a href="#login">Login and Password</a>
+    <a href="#backup">Backup and Restore</a>
     <a href="#tests">Tests</a>
   </nav>
 
@@ -2360,14 +2406,14 @@ SETTINGS = r"""{% extends 'base.html' %}
             <input name="renag_days" type="number" min="1" value="{{ s.renag_days }}">
           </label>
         </div>
-        <div class="actions"><button class="primary" type="submit">Save reminders</button></div>
+        <div class="actions"><button class="primary" type="submit">Save Reminders</button></div>
       </form>
     </section>
 
     <section id="phone" class="panel">
       <div class="sec-head">
-        <h2>Phone alerts</h2>
-        <p class="meta">Reminders with a <b>Mark used</b> button arrive on your phones through the free <b>ntfy</b> app.
+        <h2>Phone Alerts</h2>
+        <p class="meta">Reminders with a <b>Mark Used</b> button arrive on your phones through the free <b>ntfy</b> app.
           Phone server:
           {% if ntfy.up %}<span class="pill ok">ready</span>{% else %}<span class="pill" style="color:var(--overdue)">not responding</span>. If this stays red, restart the container.{% endif %}</p>
       </div>
@@ -2376,7 +2422,7 @@ SETTINGS = r"""{% extends 'base.html' %}
         <div class="step">
           <div class="step-num">1</div>
           <div class="step-body">
-            <h3>Address the phones connect to</h3>
+            <h3>Address the Phones Connect To</h3>
             <form method="post" action="{{ url_for('settings_addresses') }}" class="form">
               <label>Phone server address <span class="meta">Leave blank to use {{ phone_guess }}{% if guess_is_name %}. You opened this app by name, so enter the address yourself{% endif %}.</span>
                 <input name="phone_address" value="{{ phone_saved }}" placeholder="{{ phone_guess }}">
@@ -2384,11 +2430,11 @@ SETTINGS = r"""{% extends 'base.html' %}
               <label>Web address of this app <span class="meta">Used by the Mark used buttons. Filled in the first time you log in.</span>
                 <input name="app_address" value="{{ app_saved or app_now }}" placeholder="http://192.168.1.50:8686">
               </label>
-              <div class="actions"><button class="ghost" type="submit">Save addresses</button></div>
+              <div class="actions"><button class="ghost" type="submit">Save Addresses</button></div>
             </form>
             <div class="tips">
               <div class="tip">
-                <b>On your home network</b>
+                <b>On Your Home Network</b>
                 <p class="meta">Use <code>http://</code>, your server's IP address and port <code>2586</code>, such as <code>http://192.168.1.50:2586</code>. Phones away from home need a VPN such as Tailscale.</p>
               </div>
               <div class="tip">
@@ -2402,7 +2448,7 @@ SETTINGS = r"""{% extends 'base.html' %}
         <div class="step">
           <div class="step-num">2</div>
           <div class="step-body">
-            <h3>Phone login</h3>
+            <h3>Phone Login</h3>
             <p class="meta">Every phone uses this one login. It can read reminders but can't send them.</p>
             <div class="kv">
               <div><span class="meta">Username</span><code>phone</code></div>
@@ -2413,7 +2459,7 @@ SETTINGS = r"""{% extends 'base.html' %}
               <label>Your own password <span class="meta">8 to 64 characters, or leave blank to generate one</span>
                 <input name="password" type="text" minlength="8" maxlength="64" autocomplete="off" spellcheck="false" placeholder="e.g. smith-family-alerts">
               </label>
-              <div class="actions"><button class="ghost" type="submit">Save phone password</button></div>
+              <div class="actions"><button class="ghost" type="submit">Save Phone Password</button></div>
             </form>
           </div>
         </div>
@@ -2421,25 +2467,25 @@ SETTINGS = r"""{% extends 'base.html' %}
         <div class="step">
           <div class="step-num">3</div>
           <div class="step-body">
-            <h3>Where alerts go</h3>
+            <h3>Where Alerts Go</h3>
             <form method="post" action="{{ url_for('settings_topic_mode') }}" class="form">
               <div class="tiles">
                 <label class="tile">
                   <input type="radio" name="topic_mode" value="household" {{ 'checked' if topic_mode == 'household' }}>
-                  <span><b>One household topic</b><span class="meta">Every phone gets every reminder. New phones need only one topic.</span></span>
+                  <span><b>One Household Topic</b><span class="meta">Every phone gets every reminder. New phones need only one topic.</span></span>
                 </label>
                 <label class="tile">
                   <input type="radio" name="topic_mode" value="person" {{ 'checked' if topic_mode == 'person' }}>
-                  <span><b>Own topic per person</b><span class="meta">Each person's reminders go to their own topic, set on the People page.</span></span>
+                  <span><b>Own Topic per Person</b><span class="meta">Each person's reminders go to their own topic, set on the People page.</span></span>
                 </label>
               </div>
-              <div class="actions"><button class="ghost" type="submit">Save choice</button></div>
+              <div class="actions"><button class="ghost" type="submit">Save Choice</button></div>
             </form>
             <form method="post" action="{{ url_for('settings_save') }}" class="form">
               <label>Household topic <span class="meta">Also used for people with no topic of their own.</span>
                 <input name="ntfy_url" value="{{ s.ntfy_url }}" placeholder="Create one below, or paste an ntfy.sh topic">
               </label>
-              <div class="actions"><button class="ghost" type="submit">Save topic</button></div>
+              <div class="actions"><button class="ghost" type="submit">Save Topic</button></div>
             </form>
             <form method="post" action="{{ url_for('settings_topic') }}">
               <button class="ghost" type="submit">{{ 'Create a new household topic' if ntfy.builtin else 'Create a household topic' }}</button>
@@ -2450,7 +2496,7 @@ SETTINGS = r"""{% extends 'base.html' %}
         <div class="step">
           <div class="step-num">4</div>
           <div class="step-body">
-            <h3>Set up each phone</h3>
+            <h3>Set Up Each Phone</h3>
             <ol class="plain">
               <li>Install the free <b>ntfy</b> app from the App Store or Google Play.</li>
               <li>In the app, add a user for the server: the <b>phone server address</b> from step 1, username <code>phone</code>, and the password from step 2. Menu names can differ slightly between app versions.</li>
@@ -2462,7 +2508,7 @@ SETTINGS = r"""{% extends 'base.html' %}
       </div>
 
       <details class="more">
-        <summary>Advanced: admin login and access token</summary>
+        <summary>Advanced: Admin Login and Access Token</summary>
         <div class="stack-col">
           <p class="meta">The admin login opens the ntfy web page at <code>{{ phone or 'your phone server address' }}</code>. Only you need it.</p>
           <div class="kv">
@@ -2474,13 +2520,13 @@ SETTINGS = r"""{% extends 'base.html' %}
             <label>Your own admin password <span class="meta">8 to 64 characters, or leave blank to generate one</span>
               <input name="password" type="text" minlength="8" maxlength="64" autocomplete="off" spellcheck="false" placeholder="e.g. my-ntfy-admin">
             </label>
-            <div class="actions"><button class="ghost" type="submit">Save admin password</button></div>
+            <div class="actions"><button class="ghost" type="submit">Save Admin Password</button></div>
           </form>
           <form method="post" action="{{ url_for('settings_save') }}" class="form">
             <label>Access token <span class="meta">Only if your ntfy server requires one{% if token_set %}. One is saved; leave blank to keep it{% endif %}.</span>
               <input name="ntfy_token" type="password" autocomplete="off">
             </label>
-            <div class="actions"><button class="ghost" type="submit">Save access token</button></div>
+            <div class="actions"><button class="ghost" type="submit">Save Access Token</button></div>
           </form>
         </div>
       </details>
@@ -2488,20 +2534,20 @@ SETTINGS = r"""{% extends 'base.html' %}
 
     <section id="email" class="panel">
       <div class="sec-head">
-        <h2>Email and other alerts</h2>
+        <h2>Email and Other Alerts</h2>
         <p class="meta">Sent for cards with no owner, and for people who have an email set up on the People page. Put one address on each line, such as <code>mailto://yourname:app-password@gmail.com?to=you@example.com</code>.</p>
       </div>
       <form method="post" action="{{ url_for('settings_save') }}" class="form">
         <label>Alert addresses
           <textarea name="notify_urls" rows="3" placeholder="mailto://user:app-password@gmail.com?to=you@example.com">{{ s.notify_urls }}</textarea>
         </label>
-        <div class="actions"><button class="primary" type="submit">Save alerts</button></div>
+        <div class="actions"><button class="primary" type="submit">Save Alerts</button></div>
       </form>
     </section>
 
     <section id="login" class="panel">
       <div class="sec-head">
-        <h2>Login and password</h2>
+        <h2>Login and Password</h2>
         <p class="meta">The password for this app. Changing it signs out every other browser.</p>
       </div>
       <form method="post" action="{{ url_for('change_password') }}" class="form">
@@ -2509,7 +2555,29 @@ SETTINGS = r"""{% extends 'base.html' %}
           <label>Current password<input name="current" type="password" autocomplete="current-password" required></label>
           <label>New password (8+ characters)<input name="new" type="password" minlength="8" autocomplete="new-password" required></label>
         </div>
-        <div class="actions"><button type="submit">Change password</button></div>
+        <div class="actions"><button type="submit">Change Password</button></div>
+      </form>
+    </section>
+
+    <section id="backup" class="panel">
+      <div class="sec-head">
+        <h2>Backup and Restore</h2>
+        <p class="meta">A backup zip holds every card, setting, card picture and the phone server's logins. Keep it somewhere safe: the logins in it can open your phone alerts.</p>
+      </div>
+      <div class="actions" style="margin-bottom:16px">
+        <a class="primary small" href="{{ url_for('settings_backup') }}">Download Backup</a>
+      </div>
+      <form method="post" action="{{ url_for('settings_restore') }}" enctype="multipart/form-data" class="form"
+            data-busy data-steps="Restoring the backup…|Still restoring. Large backups take longer.">
+        <h3>Restore from a Backup</h3>
+        <p class="meta">This replaces everything on this server with the backup. It cannot be undone, so download a fresh backup first if you want to keep what is here now.</p>
+        <label>Backup file <input type="file" name="backup" accept=".zip,application/zip" required></label>
+        <label class="check"><input type="checkbox" name="confirm" value="1" required> I understand this replaces the current cards, settings and logins.</label>
+        <div class="actions"><button class="danger" type="submit">Restore Backup</button></div>
+        <div class="busy" hidden>
+          <div class="busy-bar"><span></span></div>
+          <p class="meta" data-busy-text></p>
+        </div>
       </form>
     </section>
 
@@ -2519,8 +2587,8 @@ SETTINGS = r"""{% extends 'base.html' %}
         <p class="meta">A test message goes to the household topic and email alerts. Sending due reminders now ignores the repeat delay.</p>
       </div>
       <div class="actions">
-        <form method="post" action="{{ url_for('settings_test') }}"><button class="ghost" type="submit">Send test message</button></form>
-        <form method="post" action="{{ url_for('settings_check') }}"><button class="ghost" type="submit">Send due reminders now</button></form>
+        <form method="post" action="{{ url_for('settings_test') }}"><button class="ghost" type="submit">Send Test Message</button></form>
+        <form method="post" action="{{ url_for('settings_check') }}"><button class="ghost" type="submit">Send Due Reminders Now</button></form>
       </div>
     </section>
 
@@ -2530,25 +2598,26 @@ SETTINGS = r"""{% extends 'base.html' %}
 """
 
 CARD_SETTINGS = r"""{% extends 'base.html' %}
-{% block title %}Card settings · Credit-KeepAlive{% endblock %}
+{% block title %}Card Settings · Credit-KeepAlive{% endblock %}
 {% block content %}
 <div class="page-head">
-  <h1>Card settings</h1>
+  <h1>Card Settings</h1>
   <p class="meta">How often cards come due, their pictures, and the issuers and cards you can pick from. Phone and email alerts are on <a href="{{ url_for('settings_page') }}">Settings</a>.</p>
 </div>
 
 <div class="split">
   <nav class="side" aria-label="Card settings sections">
-    <a href="#due">Due dates</a>
-    <a href="#pictures">Card pictures</a>
-    <a href="#list">Issuers and cards</a>
+    <a href="#due">Due Dates</a>
+    <a href="#pictures">Card Pictures</a>
+    <a href="#names">Find Card Names</a>
+    <a href="#list">Issuers and Cards</a>
   </nav>
 
   <div class="stack">
 
     <section id="due" class="panel">
       <div class="sec-head">
-        <h2>Due dates</h2>
+        <h2>Due Dates</h2>
         <p class="meta">How long a card can wait between uses, and how due dates are spread out.</p>
       </div>
       <form method="post" action="{{ url_for('card_settings_save') }}" class="form">
@@ -2560,18 +2629,18 @@ CARD_SETTINGS = r"""{% extends 'base.html' %}
             <input name="stagger_percent" type="number" min="0" max="50" value="{{ s.stagger_percent }}">
           </label>
         </div>
-        <div class="actions"><button class="primary" type="submit">Save due dates</button></div>
+        <div class="actions"><button class="primary" type="submit">Save Due Dates</button></div>
       </form>
       <form method="post" action="{{ url_for('settings_spread') }}" class="subpanel" style="margin-top:14px">
-        <h3>Spread due dates now</h3>
+        <h3>Spread Due Dates Now</h3>
         <p class="meta">Use this after changing several cards at once. It only moves due dates within the spread percent above, so nothing is due later than its cycle.</p>
-        <div class="actions"><button class="ghost" type="submit">Spread due dates now</button></div>
+        <div class="actions"><button class="ghost" type="submit">Spread Due Dates Now</button></div>
       </form>
     </section>
 
     <section id="pictures" class="panel">
       <div class="sec-head">
-        <h2>Card pictures</h2>
+        <h2>Card Pictures</h2>
         <p class="meta">Each card shows its picture. A card without one gets a generic picture: a coloured card with its issuer and name.</p>
       </div>
       {% if pictures_missing %}
@@ -2587,23 +2656,23 @@ CARD_SETTINGS = r"""{% extends 'base.html' %}
 
       <div class="two">
         <form method="post" action="{{ url_for('card_pictures') }}" enctype="multipart/form-data" class="subpanel">
-          <h3>Upload pictures</h3>
+          <h3>Upload Pictures</h3>
           <label>Picture files <span class="meta">Use the files as the issuer named them. Choose several at once, then check each match before saving.</span>
             <input type="file" name="pictures" multiple accept="image/png,image/jpeg,image/gif,image/webp,.zip">
           </label>
           <label>Or a whole folder <span class="meta">Every picture inside is used. A ZIP of pictures works too.</span>
             <input type="file" name="pictures" webkitdirectory>
           </label>
-          <div class="actions"><button class="ghost" type="submit">Upload pictures</button></div>
+          <div class="actions"><button class="ghost" type="submit">Upload Pictures</button></div>
         </form>
 
         <form method="post" action="{{ url_for('card_pictures_scrape') }}" class="subpanel" data-busy
               data-steps="Opening the page…|Looking through the page for card pictures…|Downloading the matching pictures. This can take up to 30 seconds.">
-          <h3>Find pictures on an issuer's page</h3>
+          <h3>Find Pictures on an Issuer's Page</h3>
           <label>Page address <span class="meta">Only pictures that name a card in your list are used, and you still check each one. Pages that load pictures with scripts won't work.</span>
             <input type="url" name="url" maxlength="500" placeholder="https://creditcards.chase.com/travel-credit-cards" required>
           </label>
-          <div class="actions"><button class="ghost" type="submit">Find pictures</button></div>
+          <div class="actions"><button class="ghost" type="submit">Find Pictures</button></div>
           <div class="busy" hidden>
             <div class="busy-bar"><span></span></div>
             <p class="meta" data-busy-text aria-live="polite">Opening the page…</p>
@@ -2613,34 +2682,63 @@ CARD_SETTINGS = r"""{% extends 'base.html' %}
 
       <div class="two">
         <div class="subpanel">
-          <h3>Back up and restore pictures</h3>
+          <h3>Back Up and Restore Pictures</h3>
           <p class="meta">Export saves every card picture in one ZIP file. On a new installation, import that ZIP and each picture goes straight to its card, with no review.</p>
-          <div class="actions"><a class="ghost" href="{{ url_for('card_pictures_export') }}">Export pictures (ZIP)</a></div>
+          <div class="actions"><a class="ghost" href="{{ url_for('card_pictures_export') }}">Export Pictures (ZIP)</a></div>
           <form method="post" action="{{ url_for('card_pictures_import') }}" enctype="multipart/form-data" class="form">
             <label>Import a pictures ZIP <input type="file" name="pack" accept=".zip"></label>
             <label class="check"><input type="checkbox" name="replace" value="1"> Replace pictures that are already saved</label>
-            <div class="actions"><button class="ghost" type="submit">Import pictures</button></div>
+            <div class="actions"><button class="ghost" type="submit">Import Pictures</button></div>
           </form>
         </div>
 
         <form method="post" action="{{ url_for('settings_default_pictures') }}" class="subpanel">
-          <h3>Generic pictures</h3>
+          <h3>Generic Pictures</h3>
           <p class="meta">Redraws the generic picture for every card that uses one, including ones made by older versions. Your own pictures are not changed.</p>
           <div class="actions">
-            <button class="ghost" type="submit">Redraw generic pictures</button>
-            {% if real_art_url %}<a class="ghost" href="{{ real_art_url }}" target="_blank" rel="noopener">Download real card art (zip)</a>{% endif %}
+            <button class="ghost" type="submit">Redraw Generic Pictures</button>
+            {% if real_art_url %}<a class="ghost" href="{{ real_art_url }}" target="_blank" rel="noopener">Download Real Card Art (ZIP)</a>{% endif %}
           </div>
         </form>
       </div>
     </section>
 
+    <section id="names" class="panel">
+      <div class="sec-head">
+        <h2>Find Card Names</h2>
+        <p class="meta">Reads an issuer's card list page and the card pages it links to, then offers the card names it finds for you to tick. Works best on the issuer's own site. Up to {{ card_name_pages }} card pages are read per search.</p>
+      </div>
+      <form method="post" action="{{ url_for('card_names_find') }}" class="form" data-busy
+            data-steps="Reading the card list…|Reading the card pages. This can take a little while.">
+        <div class="two">
+          <label>Issuer
+            <select name="issuer_pick">
+              <option value="">Choose an Issuer…</option>
+              {% for i in issuer_names %}<option value="{{ i }}">{{ i }}</option>{% endfor %}
+            </select>
+          </label>
+          <label>Or a new issuer <span class="meta">Used instead of the list if filled in.</span>
+            <input name="issuer_new" type="text" maxlength="80" placeholder="For example, Chase">
+          </label>
+        </div>
+        <label>Card list page address
+          <input name="url" type="url" maxlength="500" placeholder="https://www.example.com/credit-cards" required>
+        </label>
+        <div class="actions"><button class="primary small" type="submit">Find Card Names</button></div>
+        <div class="busy" hidden>
+          <div class="busy-bar"><span></span></div>
+          <p class="meta" data-busy-text></p>
+        </div>
+      </form>
+    </section>
+
     <section id="list" class="panel">
       <div class="sec-head">
-        <h2>Issuers and cards</h2>
+        <h2>Issuers and Cards</h2>
         <p class="meta">The issuers and cards offered in the Add card dropdowns. Removing one only takes it off the list. Cards you already saved are not changed.</p>
       </div>
       <div class="actions" style="margin-bottom:14px">
-        <a class="ghost" href="{{ url_for('card_import') }}">Import cards from a CSV</a>
+        <a class="ghost" href="{{ url_for('card_import') }}">Import Cards from a CSV</a>
       </div>
       <div class="stack-col">
         {% for g in catalog %}
@@ -2653,7 +2751,7 @@ CARD_SETTINGS = r"""{% extends 'base.html' %}
               <form method="post" action="{{ url_for('remove_card') }}">
                 <input type="hidden" name="issuer" value="{{ g.issuer }}">
                 <input type="hidden" name="name" value="{{ c.name }}">
-                <button class="danger" type="submit">Remove card</button>
+                <button class="danger" type="submit">Remove Card</button>
               </form>
             </div>
             {% else %}
@@ -2662,7 +2760,7 @@ CARD_SETTINGS = r"""{% extends 'base.html' %}
             <form method="post" action="{{ url_for('remove_issuer') }}"
                   onsubmit='return confirm({{ ("Remove " ~ g.issuer ~ " and all of its cards from the list? Saved cards are not changed.")|tojson }});'>
               <input type="hidden" name="issuer" value="{{ g.issuer }}">
-              <button class="danger" type="submit">Remove issuer</button>
+              <button class="danger" type="submit">Remove Issuer</button>
             </form>
           </div>
         </details>
@@ -2695,10 +2793,10 @@ document.querySelectorAll('form[data-busy]').forEach(function (f) {
 """
 
 CARD_PICK = r"""{% extends 'base.html' %}
-{% block title %}Choose pictures · Credit-KeepAlive{% endblock %}
+{% block title %}Choose Pictures · Credit-KeepAlive{% endblock %}
 {% block content %}
 <div class="page-head">
-  <h1>Choose pictures</h1>
+  <h1>Choose Pictures</h1>
   <p class="meta">The search couldn't match any pictures to your cards, so here is every picture on
     <a href="{{ page_url }}" target="_blank" rel="noopener noreferrer">the page you searched</a>.
     Tick the ones you want and choose the card for each one.</p>
@@ -2711,11 +2809,11 @@ CARD_PICK = r"""{% extends 'base.html' %}
   <div class="pick-grid">
     {% for it in items %}
     <div class="pick-item">
-      <img src="{{ it.url }}" alt="{{ it.desc or it.name }}" loading="lazy" referrerpolicy="no-referrer">
+      <img src="{{ url_for('card_pictures_pick_image', token=token, i=loop.index0) }}" alt="{{ it.desc or it.name }}" loading="lazy" referrerpolicy="no-referrer">
       <div class="meta pick-name" title="{{ it.desc or it.name }}">{{ it.desc or it.name }}</div>
       <label class="check"><input type="checkbox" name="keep" value="{{ loop.index0 }}"> Use this picture</label>
       <select name="card_{{ loop.index0 }}" aria-label="Card for this picture">
-        <option value="">Choose a card…</option>
+        <option value="">Choose a Card…</option>
         {% for o in options %}<option value="{{ o.val }}">{{ o.label }}</option>{% endfor %}
       </select>
     </div>
@@ -2726,7 +2824,7 @@ CARD_PICK = r"""{% extends 'base.html' %}
     <p class="meta" data-busy-text aria-live="polite">Downloading the chosen pictures…</p>
   </div>
   <div class="actions">
-    <button class="primary" type="submit">Review and save selected</button>
+    <button class="primary" type="submit">Review and Save Selected</button>
     <a class="ghost" href="{{ url_for('card_settings_page') }}">Cancel</a>
   </div>
 </form>
@@ -2781,7 +2879,7 @@ CONFIRM = r"""<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <title>Mark used · Credit-KeepAlive</title>
-<style>{{ css|safe }}</style><style>{{ look_css|safe }}</style><style>
+<style>{{ css|safe }}</style><style id="look-css">{{ look_css|safe }}</style><style>
 body{display:grid;place-items:center}
 </style></head>
 <body>
@@ -2791,11 +2889,39 @@ body{display:grid;place-items:center}
     <p><b>{{ name }}</b> marked as used today.</p>
   {% else %}
     <p>Mark <b>{{ name }}</b> as used today?</p>
-    <form method="post"><button class="primary" type="submit" style="margin-top:6px">Yes, mark used</button></form>
+    <form method="post"><button class="primary" type="submit" style="margin-top:6px">Yes, Mark Used</button></form>
   {% endif %}
-  <p style="margin-top:14px"><a href="{{ url_for('index') }}">Open dashboard</a></p>
+  <p style="margin-top:14px"><a href="{{ url_for('index') }}">Open Dashboard</a></p>
 </div>
 </body></html>
+"""
+
+CARD_NAMES = r"""{% extends 'base.html' %}
+{% block title %}Card Names · Credit-KeepAlive{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Card Names for {{ issuer }}</h1>
+  <p class="meta">Found on <a href="{{ page_url }}" target="_blank" rel="noopener noreferrer">the page you searched</a>.
+    Untick any you don't want, then add the rest to the list of cards.</p>
+</div>
+{% for p in problems %}<div class="notice"><p>{{ p }}</p></div>{% endfor %}
+{% if names %}
+<form method="post" action="{{ url_for('card_names_save') }}" class="form panel">
+  <input type="hidden" name="issuer" value="{{ issuer }}">
+  <div class="stack-col">
+    {% for n in names %}
+    <label class="check"><input type="checkbox" name="name" value="{{ n }}" checked> {{ n }}</label>
+    {% endfor %}
+  </div>
+  <div class="actions">
+    <button class="primary" type="submit">Add the Ticked Cards</button>
+    <a class="ghost" href="{{ url_for('card_settings_page') }}">Cancel</a>
+  </div>
+</form>
+{% else %}
+<div class="actions"><a class="ghost" href="{{ url_for('card_settings_page') }}">Back to Card Settings</a></div>
+{% endif %}
+{% endblock %}
 """
 
 TEMPLATES = {
@@ -2809,6 +2935,7 @@ TEMPLATES = {
     "history.html": HISTORY,
     "settings.html": SETTINGS,
     "card_settings.html": CARD_SETTINGS,
+    "card_names.html": CARD_NAMES,
     "card_pictures_pick.html": CARD_PICK,
     "auth.html": AUTH,
     "confirm.html": CONFIRM,
@@ -2831,7 +2958,7 @@ app.config.update(
     SESSION_COOKIE_SAMESITE="Lax",
     SESSION_COOKIE_SECURE=os.environ.get("BASE_URL", "").lower().startswith("https://"),
     PERMANENT_SESSION_LIFETIME=timedelta(days=30),
-    MAX_CONTENT_LENGTH=6 * 1024 * 1024,
+    MAX_CONTENT_LENGTH=RESTORE_MAX_BYTES,
 )
 
 LAST4_RE = re.compile(r"^\d{0,4}$")
@@ -3668,6 +3795,7 @@ SCRAPE_TIMEOUT = 8                  # seconds per request
 SCRAPE_BUDGET = 20                  # seconds for the whole search; the web server stops a request after 30
 SCRAPE_MAX_PAGE = 12 * 1024 * 1024  # larger pages are searched up to this point
 SCRAPE_MAX_IMAGES = 40
+CARD_NAME_PAGES = 12                # card pages read in one name search
 
 
 def _public_url(url):
@@ -3912,6 +4040,34 @@ def _picker(page, candidates, problems):
     options = [{"val": _pick_value(c), "label": f"{c['issuer']} · {c['name']}"} for c in list_card_types()]
     return _render("card_pictures_pick.html", page="card_settings", token=token, items=items,
                    options=options, page_url=page, problems=problems)
+
+
+@app.get("/card-pictures/pick/image/<token>/<int:i>")
+def card_pictures_pick_image(token, i):
+    """A thumbnail for the picker. The browser cannot load it from the picture's own site, because the
+    page's image rules only allow this server, so it is fetched here with the same address checks."""
+    if not re.fullmatch(r"[A-Za-z0-9_\-]{10,60}", token):
+        abort(404)
+    path = os.path.join(_stage_path(token), "candidates.json")
+    if not os.path.exists(path):
+        abort(404)
+    with open(path, encoding="utf-8") as fh:
+        items = json.load(fh)["items"]
+    if not 0 <= i < len(items):
+        abort(404)
+    url = items[i]["url"]
+    if _public_url(url):
+        abort(404)
+    try:
+        ctype, raw, _ = _fetch(url, MAX_IMAGE_BYTES, "image/*")
+    except Exception:
+        abort(404)
+    ctype = ctype.split(";")[0].strip().lower()
+    if not ctype.startswith("image/") or ctype == "image/svg+xml":
+        abort(404)
+    resp = Response(raw, mimetype=ctype)
+    resp.headers["Cache-Control"] = "private, max-age=3600"
+    return resp
 
 
 @app.post("/card-pictures/pick/save")
@@ -4271,12 +4427,217 @@ def person_test(person_id):
 
 
 # -- settings and actions
+# -- card names from an issuer's web pages
+GENERIC_NAMES = {"home", "cards", "credit cards", "credit card", "personal cards", "business cards",
+                 "compare cards", "apply now", "all cards", "card", "cardholders"}
+
+
+def clean_issuer(raw):
+    """A typed issuer name, tidied. Empty if it has control characters or is blank."""
+    s = re.sub(r"\s+", " ", raw or "").strip()[:80]
+    if not s or re.search(r"[\x00-\x1f]", s):
+        return ""
+    return s
+
+
+def clean_card_name(raw):
+    """A card name from a page title or heading: the product name only, or None if it does not look like one."""
+    s = re.sub(r"[®™©℠]", "", raw or "")
+    s = re.sub(r"\s+", " ", s).strip()
+    s = re.split(r"\s+[|–—-]\s+", s)[0]
+    s = re.split(r"\s+from\s+", s, flags=re.I)[0]
+    for _ in range(2):  # "Apply for the Blue Cash Card" needs both prefixes removed
+        s = re.sub(r"^(apply\s+(now\s+)?for|the)\s+", "", s, flags=re.I)
+    s = s.strip(" .,:;")
+    if not (3 <= len(s) <= 80) or len(re.findall(r"[A-Za-z]", s)) < 3:
+        return None
+    low = s.lower()
+    if low in GENERIC_NAMES or low.startswith(("apply", "compare", "sign in", "log in", "login", "credit card", "cards ")):
+        return None
+    return s
+
+
+class _CardLinkFinder(HTMLParser):
+    """Collects every link on a page with its text."""
+    def __init__(self, base):
+        super().__init__(convert_charrefs=True)
+        self.base = base
+        self.links = []
+        self._href = None
+        self._text = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag != "a":
+            return
+        href = (dict((k, v or "") for k, v in attrs).get("href") or "").strip()
+        if href and not href.startswith(("#", "mailto:", "tel:", "javascript:")):
+            self._href = urljoin(self.base, href)
+            self._text = []
+
+    def handle_data(self, data):
+        if self._href is not None:
+            self._text.append(data)
+
+    def handle_endtag(self, tag):
+        if tag == "a" and self._href is not None:
+            self.links.append((self._href, " ".join("".join(self._text).split())))
+            self._href = None
+
+
+class _CardNameFinder(HTMLParser):
+    """Reads the candidate names from a card page: its social title, first heading and title tag."""
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.og = ""
+        self.h1 = ""
+        self.title = ""
+        self._in = None
+        self._buf = []
+
+    def handle_starttag(self, tag, attrs):
+        a = dict((k, v or "") for k, v in attrs)
+        if tag == "meta" and a.get("property") == "og:title" and not self.og:
+            self.og = a.get("content", "")
+        elif tag in ("h1", "title") and self._in is None:
+            if (tag == "h1" and self.h1) or (tag == "title" and self.title):
+                return
+            self._in = tag
+            self._buf = []
+
+    def handle_data(self, data):
+        if self._in:
+            self._buf.append(data)
+
+    def handle_endtag(self, tag):
+        if tag == self._in:
+            text = " ".join("".join(self._buf).split())
+            if tag == "h1":
+                self.h1 = text
+            else:
+                self.title = text
+            self._in = None
+
+
+def _card_page_name(html):
+    f = _CardNameFinder()
+    f.feed(html)
+    for raw in (f.og, f.h1, f.title):
+        name = clean_card_name(raw)
+        if name:
+            return name
+    return None
+
+
+def _find_card_names(page):
+    """Reads an issuer's card list, then the card pages it links to on the same site. Returns (names, problems)."""
+    problems = []
+    started = time.monotonic()
+    try:
+        ctype, raw, final = _fetch(page, SCRAPE_MAX_PAGE, "text/html", truncate=True)
+    except Exception:
+        return [], ["The card list page could not be loaded."]
+    if ctype and "html" not in ctype.lower():
+        return [], ["That address is not a web page with card names."]
+    finder = _CardLinkFinder(final)
+    finder.feed(raw.decode("utf-8", "replace"))
+    host = urlparse(page).netloc.lower()
+    same_site = [(h, t) for h, t in finder.links
+                 if urlparse(h).scheme in ("http", "https") and urlparse(h).netloc.lower() == host]
+    card_links = []
+    for href, _ in same_site:
+        absu = urldefrag(href)[0]
+        if "card" in unquote(urlparse(absu).path).lower() and absu != urldefrag(page)[0] \
+                and absu not in card_links:
+            card_links.append(absu)
+
+    names = []
+    for link in card_links[:CARD_NAME_PAGES]:
+        if time.monotonic() - started > SCRAPE_BUDGET:
+            problems.append("Stopped early to keep the search quick. Search again to read the rest.")
+            break
+        if _public_url(link):
+            continue
+        try:
+            _, body, _ = _fetch(link, SCRAPE_MAX_PAGE, "text/html", truncate=True)
+        except Exception:
+            continue
+        name = _card_page_name(body.decode("utf-8", "replace"))
+        if name:
+            names.append(name)
+    if len(card_links) > CARD_NAME_PAGES:
+        problems.append(f"The page links to {len(card_links)} card pages. The first {CARD_NAME_PAGES} were read. "
+                        "Search a narrower page to read the rest.")
+    if not names:
+        # No card pages could be read, so the link text on the list page is the next best guess.
+        for _, text in same_site:
+            name = clean_card_name(text)
+            if name and "card" in text.lower():
+                names.append(name)
+
+    unique, seen = [], set()
+    for n in names:
+        if n.lower() not in seen:
+            seen.add(n.lower())
+            unique.append(n)
+    return unique, problems
+
+
+@app.post("/cards/settings/find-names")
+def card_names_find():
+    """Step 1: read an issuer's card list and the card pages it links to, then show the names found."""
+    issuer = clean_issuer(request.form.get("issuer_new", "")) or clean_issuer(request.form.get("issuer_pick", ""))
+    page = request.form.get("url", "").strip()[:500]
+    if not issuer:
+        flash("Choose an issuer, or type a new one. Nothing was looked up.")
+        return redirect(url_for("card_settings_page"))
+    parts = urlparse(page)
+    if parts.scheme not in ("http", "https") or not parts.netloc:
+        flash("Enter the full address of the issuer's card list page, starting with https://.")
+        return redirect(url_for("card_settings_page"))
+    problem = _public_url(page) or _robots_problem(page)
+    if problem:
+        flash(problem)
+        return redirect(url_for("card_settings_page"))
+    names, problems = _find_card_names(page)
+    have = {c["name"].lower() for c in list_card_types() if c["issuer"].lower() == issuer.lower()}
+    names = [n for n in names if n.lower() not in have]
+    if not names and not problems:
+        problems.append("No new card names were found on that page.")
+    return _render("card_names.html", page="card_settings", issuer=issuer, names=names,
+                   page_url=page, problems=problems)
+
+
+@app.post("/cards/settings/names/save")
+def card_names_save():
+    """Step 2: add the card names the user ticked to the issuer's list."""
+    issuer = clean_issuer(request.form.get("issuer", ""))
+    if not issuer:
+        flash("No issuer was given, so nothing was added.")
+        return redirect(url_for("card_settings_page"))
+    have = {c["name"].lower() for c in list_card_types() if c["issuer"].lower() == issuer.lower()}
+    added = skipped = 0
+    for raw in request.form.getlist("name")[:200]:
+        name = clean_card_name(raw)
+        if not name or name.lower() in have:
+            skipped += 1
+            continue
+        ensure_card_type(issuer, name)
+        have.add(name.lower())
+        added += 1
+    msg = f"Added {added} card{'' if added == 1 else 's'} to {issuer}."
+    if skipped:
+        msg += f" {skipped} {'was' if skipped == 1 else 'were'} already listed or not usable, so skipped."
+    flash(msg)
+    return redirect(url_for("card_settings_page"))
+
+
 @app.route("/cards/settings")
 def card_settings_page():
     s = {k: get_setting(k) for k in ("default_interval", "stagger_percent")}
     pictures_saved, pictures_missing = picture_health()
     return _render(
         "card_settings.html", page="card_settings", s=s, catalog=catalog_groups(),
+        issuer_names=list_issuers(), card_name_pages=CARD_NAME_PAGES,
         pictures_saved=pictures_saved, pictures_missing=pictures_missing,
         picture_folder=CARD_IMG_DIR, real_art_url=REAL_ART_URL,
     )
@@ -4292,6 +4653,216 @@ def card_settings_save():
                 pass
     flash("Card settings saved.")
     return redirect(url_for("card_settings_page"))
+
+
+# -- backup and restore
+@app.before_request
+def _form_size_limit():
+    """Every form is capped at OTHER_MAX_BYTES. Only a backup restore may be larger."""
+    if request.path != "/settings/restore" and (request.content_length or 0) > OTHER_MAX_BYTES:
+        abort(413)
+
+
+def _snapshot(src_path, dst_path):
+    """Copies a SQLite file with SQLite's own backup, so a copy taken while the app runs is consistent."""
+    src = sqlite3.connect(src_path)
+    try:
+        dst = sqlite3.connect(dst_path)
+        try:
+            src.backup(dst)
+        finally:
+            dst.close()
+    finally:
+        src.close()
+
+
+def build_backup(out_path):
+    """Writes every card, setting, card picture and phone-server login to one zip file."""
+    ntfy_dir = ntfy_acct.DATA_DIR
+    counts = {"card_pictures": 0, "phone_files": 0}
+    with tempfile.TemporaryDirectory(dir=os.path.dirname(DB_PATH) or None) as tmp:
+        with zipfile.ZipFile(out_path, "w", zipfile.ZIP_DEFLATED, allowZip64=True) as zf:
+            snap = os.path.join(tmp, "cards.db")
+            _snapshot(DB_PATH, snap)
+            zf.write(snap, "cards.db")
+            if os.path.isdir(CARD_IMG_DIR):
+                for root, dirs, files in os.walk(CARD_IMG_DIR):
+                    if root == CARD_IMG_DIR and "staging" in dirs:
+                        dirs.remove("staging")          # review copies, not part of the setup
+                    for f in files:
+                        full = os.path.join(root, f)
+                        rel = os.path.relpath(full, CARD_IMG_DIR).replace(os.sep, "/")
+                        zf.write(full, "card-images/" + rel)
+                        counts["card_pictures"] += 1
+            if os.path.isdir(ntfy_dir):
+                for root, dirs, files in os.walk(ntfy_dir):
+                    for f in files:
+                        if f.endswith(("-wal", "-shm", "-journal")):
+                            continue
+                        full = os.path.join(root, f)
+                        rel = os.path.relpath(full, ntfy_dir).replace(os.sep, "/")
+                        if f.endswith(".db"):
+                            copy = os.path.join(tmp, f"ntfy-{counts['phone_files']}.db")
+                            _snapshot(full, copy)
+                            zf.write(copy, "ntfy/" + rel)
+                        else:
+                            zf.write(full, "ntfy/" + rel)
+                        counts["phone_files"] += 1
+            manifest = {
+                "format": BACKUP_FORMAT, "version": BACKUP_VERSION, "app": "Credit-KeepAlive",
+                "app_version": APP_VERSION, "created": datetime.now().isoformat(timespec="seconds"),
+                "card_pictures": counts["card_pictures"], "phone_files": counts["phone_files"],
+            }
+            zf.writestr("manifest.json", json.dumps(manifest, indent=2))
+
+
+def _unpack_backup(zip_path, stage):
+    """Checks a backup zip and unpacks it into stage. Returns a message if it is not a usable backup, else None."""
+    with zipfile.ZipFile(zip_path) as zf:
+        infos = [i for i in zf.infolist() if not i.is_dir()]
+        if len(infos) > 20000:
+            return "That backup has too many files. Nothing was changed."
+        if sum(i.file_size for i in infos) > RESTORE_MAX_UNPACKED:
+            return "That backup is too large to restore. Nothing was changed."
+        names = {i.filename for i in infos}
+        if "manifest.json" not in names or "cards.db" not in names:
+            return "That file is not a Credit-KeepAlive backup. Nothing was changed."
+        try:
+            manifest = json.loads(zf.read("manifest.json").decode("utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            return "That backup's manifest could not be read. Nothing was changed."
+        if not isinstance(manifest, dict) or manifest.get("format") != BACKUP_FORMAT:
+            return "That file is not a Credit-KeepAlive backup. Nothing was changed."
+        if not isinstance(manifest.get("version"), int) or manifest["version"] > BACKUP_VERSION:
+            return "That backup was made by a newer version of Credit-KeepAlive. Nothing was changed."
+        for info in infos:
+            name = info.filename
+            parts = name.split("/")
+            if not BACKUP_FILE.fullmatch(name) or any(p in ("", ".", "..") for p in parts) \
+                    or name.startswith("card-images/staging/"):
+                return "The backup contains a file that is not allowed, so nothing was changed."
+            dest = os.path.join(stage, *parts)
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            with zf.open(info) as src, open(dest, "wb") as out:
+                shutil.copyfileobj(src, out, 1024 * 1024)
+    cn = sqlite3.connect(f"file:{os.path.join(stage, 'cards.db')}?mode=ro", uri=True)
+    try:
+        ok = cn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+        tables = {r[0] for r in cn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    finally:
+        cn.close()
+    if not ok or not {"settings", "cards"} <= tables:
+        return "The database in that backup is damaged or incomplete. Nothing was changed."
+    return None
+
+
+def _put_backup_in_place(stage):
+    """Swaps the unpacked backup in. The database goes first, then the card pictures and phone-server files."""
+    for suffix in ("-wal", "-shm"):
+        try:
+            os.remove(DB_PATH + suffix)
+        except FileNotFoundError:
+            pass
+    os.replace(os.path.join(stage, "cards.db"), DB_PATH)
+
+    os.makedirs(CARD_IMG_DIR, exist_ok=True)
+    for entry in os.listdir(CARD_IMG_DIR):
+        if entry == "staging":
+            continue
+        p = os.path.join(CARD_IMG_DIR, entry)
+        if os.path.isdir(p) and not os.path.islink(p):
+            shutil.rmtree(p)
+        else:
+            os.remove(p)
+    pics = os.path.join(stage, "card-images")
+    if os.path.isdir(pics):
+        for entry in os.listdir(pics):
+            shutil.move(os.path.join(pics, entry), os.path.join(CARD_IMG_DIR, entry))
+
+    phone = os.path.join(stage, "ntfy")
+    if os.path.isdir(phone):
+        for root, _, files in os.walk(phone):
+            for f in files:
+                full = os.path.join(root, f)
+                dest = os.path.join(ntfy_acct.DATA_DIR, os.path.relpath(full, phone))
+                os.makedirs(os.path.dirname(dest), exist_ok=True)
+                tmp_dest = dest + ".restoring"
+                shutil.copyfile(full, tmp_dest)
+                for suffix in ("-wal", "-shm"):
+                    try:
+                        os.remove(dest + suffix)
+                    except FileNotFoundError:
+                        pass
+                os.replace(tmp_dest, dest)
+
+
+@app.get("/settings/backup")
+def settings_backup():
+    """Downloads a zip of the whole setup. It holds logins, so it is only sent to a signed-in user."""
+    fd, out = tempfile.mkstemp(prefix="backup-", suffix=".zip", dir=os.path.dirname(DB_PATH) or None)
+    os.close(fd)
+    try:
+        build_backup(out)
+    except Exception:
+        os.remove(out)
+        raise
+    resp = send_file(out, mimetype="application/zip", as_attachment=True,
+                     download_name=f"credit-keepalive-backup-{date.today().isoformat()}.zip")
+    resp.headers["Cache-Control"] = "no-store"
+
+    @after_this_request
+    def _tidy(r):
+        try:
+            os.remove(out)
+        except OSError:
+            pass
+        return r
+    return resp
+
+
+@app.post("/settings/restore")
+def settings_restore():
+    """Replaces the whole setup with a backup zip, after the user confirms."""
+    if not request.form.get("confirm"):
+        flash("Tick the box to confirm. Nothing was changed.")
+        return redirect(url_for("settings_page"))
+    up = request.files.get("backup")
+    if up is None or not up.filename:
+        flash("Choose a backup .zip file first. Nothing was changed.")
+        return redirect(url_for("settings_page"))
+    data_dir = os.path.dirname(DB_PATH) or None
+    fd, upload = tempfile.mkstemp(prefix="upload-", suffix=".zip", dir=data_dir)
+    os.close(fd)
+    stage = tempfile.mkdtemp(prefix="restore-", dir=data_dir)
+    try:
+        up.save(upload)
+        problem = _unpack_backup(upload, stage)
+        if problem:
+            flash(problem)
+        else:
+            _put_backup_in_place(stage)
+            init_db()
+            flash("Backup restored. If you are logged out, sign in with the password from that backup. "
+                  "Restart the phone server so the restored phone logins take effect.")
+    except (zipfile.BadZipFile, sqlite3.DatabaseError, OSError, ValueError, KeyError) as err:
+        app.logger.warning("restore failed: %s", err)
+        flash("That file could not be restored. Check that it is a backup from Credit-KeepAlive.")
+    finally:
+        try:
+            os.remove(upload)
+        except OSError:
+            pass
+        shutil.rmtree(stage, ignore_errors=True)
+    return redirect(url_for("settings_page"))
+
+
+@app.get("/settings/look-preview")
+def settings_look_preview():
+    """The theme CSS for the choices on screen, so they show before they are saved."""
+    values = {k: (request.args[k] if k in request.args else get_setting(k)) for k in APPEARANCE_DEFAULTS}
+    resp = Response(look_css(values), mimetype="text/css")
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
 
 
 @app.route("/settings")
