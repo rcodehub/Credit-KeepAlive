@@ -2659,7 +2659,7 @@ CARD_SETTINGS = r"""{% extends 'base.html' %}
         Overdue cards are due today.</p></div>
       <form method="post" action="{{ url_for('card_settings_save') }}" class="form">
         <div class="two">
-          <label>Default days between uses <span class="meta">Used for new cards unless a card sets its own.</span>
+          <label>Default days between uses <span class="meta">Saving a new number sets every card to it, except cards with Fixed due date ticked.</span>
             <input name="default_interval" type="number" min="1" value="{{ s.default_interval }}">
           </label>
           <label>Spread due dates by up to (percent of the cycle) <span class="meta">Cards on the same schedule don't all fall on one day. 0 turns this off.</span>
@@ -4839,8 +4839,8 @@ def overview_page():
 
 @app.post("/cards/settings/save")
 def card_settings_save():
-    """Saves the defaults, then applies them: cards on the old default move to the new one (cards with their own
-    number keep it), and every active card's due date is planned again from the new settings."""
+    """Saves the defaults, then applies them: when the default days change, every card without a fixed due date
+    takes the new number (fixed due date cards keep their own), and every active card's due date is planned again."""
     old_default = int(get_setting("default_interval") or 45)
     for key, lo, hi in (("default_interval", 1, 3650), ("stagger_percent", 0, 50)):
         if key in request.form:
@@ -4852,14 +4852,14 @@ def card_settings_save():
     conn = db()
     moved = 0
     if new_default != old_default:
-        moved = conn.execute("UPDATE cards SET interval_days=? WHERE interval_days=?",
-                             (new_default, old_default)).rowcount
+        moved = conn.execute("UPDATE cards SET interval_days=? WHERE exact_day=0 AND interval_days!=?",
+                             (new_default, new_default)).rowcount
     count, days = spread_all_cards(conn)
     conn.commit()
     conn.close()
     msg = f"Card settings saved. {count} active card{'' if count == 1 else 's'} planned again"
     if moved:
-        msg += f", and {moved} card{'' if moved == 1 else 's'} moved to the new default of {new_default} days"
+        msg += f", and {moved} card{'' if moved == 1 else 's'} changed to the new default of {new_default} days"
     flash(msg + ".")
     return redirect(url_for("card_settings_page"))
 
