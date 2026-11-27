@@ -2946,6 +2946,8 @@ TEST_CARD = r"""{% extends 'base.html' %}
 <div class="panel"><p><b>Passed.</b> The Mark Used button reached Credit-KeepAlive at {{ marked_at }}.</p></div>
 {% elif state == 'waiting' %}
 <div class="panel"><p>Waiting for the button. This page checks again every 5 seconds.</p>
+  <p class="meta">The button address is <code>{{ link }}</code>. Older test messages keep working until they expire.</p>
+  <p class="meta">If the phone reports an error, open that address in the phone's browser. It should show "Run the Mark Used test?". If it doesn't load, the web address in Settings is wrong for the phone. Check that it uses the web port (8686), not the phone port (2586).</p>
   <p class="meta">The test link expires at {{ expires }}.</p></div>
 <script>setTimeout(function () { location.reload(); }, 5000);</script>
 {% elif state == 'expired' %}
@@ -3425,12 +3427,11 @@ def used_test_link(token):
     ip = client_ip()
     if _link_brake.blocked(ip):
         abort(429)
-    stored = get_setting("test_mark_token") or ""
-    if not stored or not secrets.compare_digest(token, stored):
+    match = next((i for i in _test_tokens() if secrets.compare_digest(token, i["t"])), None)
+    if match is None:
         _link_brake.fail(ip)
         abort(404)
-    expires = get_setting("test_mark_expires") or ""
-    if not expires or datetime.fromisoformat(expires) < datetime.now():
+    if datetime.fromisoformat(match["exp"]) < datetime.now():
         return _render("confirm.html", name="Test Card", done=False, test=True, expired=True)
     if request.method == "POST":
         set_setting("test_mark_at", datetime.now().isoformat(timespec="seconds"))
@@ -5024,17 +5025,29 @@ def settings_test():
     return redirect(url_for("settings_page"))
 
 
+def _test_tokens():
+    """The recent test links: a list of {"t": token, "exp": expiry}. Older ones are dropped by each new test."""
+    try:
+        items = json.loads(get_setting("test_mark_tokens") or "[]")
+    except ValueError:
+        return []
+    return [i for i in items if isinstance(i, dict) and i.get("t") and i.get("exp")]
+
+
 def _test_card_state():
-    """Where the test card stands: none, waiting, passed (button pressed) or expired."""
-    if not (get_setting("test_mark_token") or ""):
+    """Where the test card stands: none, waiting, passed (button pressed) or expired. Includes the button address."""
+    items = _test_tokens()
+    if not items:
         return {"state": "none"}
-    marked = get_setting("test_mark_at") or ""
-    expires = get_setting("test_mark_expires") or ""
-    if marked:
-        return {"state": "passed", "marked_at": marked}
-    if not expires or datetime.fromisoformat(expires) < datetime.now():
-        return {"state": "expired", "expires": expires}
-    return {"state": "waiting", "expires": expires}
+    base = app_address()
+    if get_setting("test_mark_at"):
+        return {"state": "passed", "marked_at": get_setting("test_mark_at")}
+    now = datetime.now()
+    live = [i for i in items if datetime.fromisoformat(i["exp"]) >= now]
+    if not live:
+        return {"state": "expired", "expires": items[-1]["exp"]}
+    newest = live[-1]
+    return {"state": "waiting", "expires": newest["exp"], "link": f"{base}/used/test/{newest['t']}"}
 
 
 @app.route("/settings/test-card", methods=["GET", "POST"])
@@ -5048,8 +5061,9 @@ def settings_test_card():
         return redirect(url_for("settings_page"))
     token = secrets.token_urlsafe(18)
     expires = (datetime.now() + timedelta(minutes=30)).isoformat(timespec="seconds")
-    set_setting("test_mark_token", token)
-    set_setting("test_mark_expires", expires)
+    now = datetime.now()
+    live = [i for i in _test_tokens() if datetime.fromisoformat(i["exp"]) >= now]
+    set_setting("test_mark_tokens", json.dumps((live + [{"t": token, "exp": expires}])[-4:]))
     set_setting("test_mark_at", "")
     link = f"{base}/used/test/{token}"
     title = "Use Test Card"
