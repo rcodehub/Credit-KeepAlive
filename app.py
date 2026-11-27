@@ -270,6 +270,8 @@ def init_db():
         conn.execute("ALTER TABLE cards ADD COLUMN theme TEXT NOT NULL DEFAULT 'graphite'")
     if "due_on" not in cc:
         conn.execute("ALTER TABLE cards ADD COLUMN due_on TEXT")
+    if "exact_day" not in cc:
+        conn.execute("ALTER TABLE cards ADD COLUMN exact_day INTEGER NOT NULL DEFAULT 0")
     uc = _columns(conn, "usage_log")
     if "source" not in uc:
         conn.execute("ALTER TABLE usage_log ADD COLUMN source TEXT NOT NULL DEFAULT 'dashboard'")
@@ -938,17 +940,18 @@ def stagger_percent():
         return 0
 
 
-def due_window(last_used, interval, today):
+def due_window(last_used, interval, today, exact=False):
     """First and last day a card may come up.
 
-    The cycle ends on last use plus the interval. The card may come up early by the stagger percent
-    of that cycle. A card never used yet can come up any day in its first cycle.
+    The cycle ends on last use plus the interval. With spreading on, the card may come up early by the
+    stagger percent of that cycle. A card with a fixed date always comes up on its cycle end. A card never
+    used yet can come up any day in its first cycle, unless it is fixed or spreading is off.
     """
     if last_used:
         hi = date.fromisoformat(last_used) + timedelta(days=interval)
-        lo = hi - timedelta(days=interval * stagger_percent() // 100)
+        lo = hi if exact else hi - timedelta(days=interval * stagger_percent() // 100)
     else:
-        if not stagger_percent():
+        if exact or not stagger_percent():
             return today, today
         hi = today + timedelta(days=interval)
         lo = today
@@ -970,13 +973,13 @@ def pick_day(lo, hi, load):
 
 def plan_saved_card(conn, card_id):
     """Pick the planned due date for one saved card, on a day with few other cards due."""
-    row = conn.execute("SELECT id, last_used, interval_days, active FROM cards WHERE id=?", (card_id,)).fetchone()
+    row = conn.execute("SELECT id, last_used, interval_days, active, exact_day FROM cards WHERE id=?", (card_id,)).fetchone()
     if row is None:
         return None
     if not row["active"]:
         conn.execute("UPDATE cards SET due_on=NULL WHERE id=?", (card_id,))
         return None
-    lo, hi = due_window(row["last_used"], row["interval_days"], date.today())
+    lo, hi = due_window(row["last_used"], row["interval_days"], date.today(), bool(row["exact_day"]))
     load = Counter(card_due_date(r) for r in conn.execute("SELECT * FROM cards WHERE active=1 AND id!=?", (card_id,)))
     day = pick_day(lo, hi, load)
     conn.execute("UPDATE cards SET due_on=? WHERE id=?", (day.isoformat(), card_id))
@@ -989,9 +992,12 @@ def spread_all_cards(conn):
     Cards with the tightest windows are placed first. Returns (cards planned, days used).
     """
     today = date.today()
-    rows = conn.execute("SELECT id, last_used, interval_days FROM cards WHERE active=1").fetchall()
-    windows = sorted((due_window(r["last_used"], r["interval_days"], today)[1], r["id"],
-                      due_window(r["last_used"], r["interval_days"], today)[0]) for r in rows)
+    rows = conn.execute("SELECT id, last_used, interval_days, exact_day FROM cards WHERE active=1").fetchall()
+    windows = []
+    for r in rows:
+        lo, hi = due_window(r["last_used"], r["interval_days"], today, bool(r["exact_day"]))
+        windows.append((hi, r["id"], lo))
+    windows.sort()
     load = Counter()
     for hi, cid, lo in windows:
         day = pick_day(lo, hi, load)
@@ -1786,6 +1792,7 @@ BASE = r"""<!doctype html>
   {% if session.get('auth') %}
   <nav>
     <a href="{{ url_for('index') }}" class="{{ 'on' if page == 'dashboard' }}">Cards</a>
+    <a href="{{ url_for('overview_page') }}" class="{{ 'on' if page == 'overview' }}">Overview</a>
     <a href="{{ url_for('people_page') }}" class="{{ 'on' if page == 'people' }}">People</a>
     <a href="{{ url_for('history_page') }}" class="{{ 'on' if page == 'history' }}">History</a>
     <a href="{{ url_for('card_settings_page') }}" class="{{ 'on' if page == 'card_settings' }}">Card Settings</a>
@@ -2060,6 +2067,7 @@ CARD_FORM = r"""{% extends 'base.html' %}
       </label>
     </div>
     <label class="check"><input type="checkbox" name="active" value="1" {{ 'checked' if card.active }}> Include in rotation</label>
+    <label class="check"><input type="checkbox" name="exact_day" value="1" {{ 'checked' if card.exact_day }}> Fixed due date: always come up on the cycle end, never on a random day</label>
     <div class="actions">
       <button class="primary" type="submit">{{ 'Save changes' if editing else 'Add card' }}</button>
       <a class="ghost" href="{{ url_for('index') }}">Cancel</a>
@@ -2597,6 +2605,13 @@ SETTINGS = r"""{% extends 'base.html' %}
         <form method="post" action="{{ url_for('settings_test_card') }}"><button class="ghost" type="submit">Send Test Due Card</button></form>
         <a class="ghost" href="{{ url_for('settings_test_card') }}">Check Test Result</a>
       </div>
+      {% if test_state.state == 'passed' %}
+      <div class="notice"><p><b>Passed.</b> The Mark Used button on the last test reached this app at {{ test_state.marked_at }}. No card was changed.</p></div>
+      {% elif test_state.state == 'waiting' %}
+      <p class="meta" style="margin-top:12px">Waiting for the Mark Used button on the last test. Check Test Result shows the latest status.</p>
+      {% elif test_state.state == 'expired' %}
+      <p class="meta" style="margin-top:12px">The last test expired before its button was pressed. Send a new test.</p>
+      {% endif %}
       <p class="meta" style="margin-top:12px">Send Test Due Card sends a fake reminder with a Mark Used button. Pressing it checks that the button reaches this app. No card is changed.</p>
     </section>
 
@@ -2628,6 +2643,12 @@ CARD_SETTINGS = r"""{% extends 'base.html' %}
         <h2>Due Dates</h2>
         <p class="meta">How long a card can wait between uses, and how due dates are spread out.</p>
       </div>
+      <div class="notice"><p><b>What the spread percentage does.</b> Each card's cycle ends a set number of days after
+        it was last used. With spreading on, a card can come up early, up to this many days before its cycle end, and
+        the app picks the least busy day in that range so cards don't pile up. With {{ s.default_interval }} days and
+        {{ s.stagger_percent }}%, that is up to {{ example_early }} days early. At 0% every card comes up on its cycle end.
+        Saving this re-plans every active card. Cards set to a fixed due date always come up on their cycle end and are not moved.
+        Overdue cards are due today.</p></div>
       <form method="post" action="{{ url_for('card_settings_save') }}" class="form">
         <div class="two">
           <label>Default days between uses <span class="meta">Used for new cards unless a card sets its own.</span>
@@ -2641,7 +2662,7 @@ CARD_SETTINGS = r"""{% extends 'base.html' %}
       </form>
       <form method="post" action="{{ url_for('settings_spread') }}" class="subpanel" style="margin-top:14px">
         <h3>Spread Due Dates Now</h3>
-        <p class="meta">Use this after changing several cards at once. It only moves due dates within the spread percent above, so nothing is due later than its cycle.</p>
+        <p class="meta">Use this after changing several cards at once. It only moves due dates within the spread percent above, so nothing is due later than its cycle. Cards set to a fixed due date stay on their cycle end.</p>
         <div class="actions"><button class="ghost" type="submit">Spread Due Dates Now</button></div>
       </form>
     </section>
@@ -2967,7 +2988,48 @@ TEST_CARD = r"""{% extends 'base.html' %}
 {% endblock %}
 """
 
+OVERVIEW = r"""{% extends 'base.html' %}
+{% block title %}Overview · Credit-KeepAlive{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Overview</h1>
+  <p class="meta">Every card by owner, when it comes up, and how its due date is spread. This page only shows information.
+    Change cards on <a href="{{ url_for('index') }}">Cards</a> and due dates on <a href="{{ url_for('card_settings_page') }}">Card Settings</a>.</p>
+</div>
+<div class="panel">
+  <p>{{ total - paused }} active and {{ paused }} paused card{{ '' if total == 1 else 's' }}.
+    Default {{ default }} days between uses. Spreading: {{ 'off' if not stagger else 'up to ' ~ stagger ~ '% of each cycle' }}.
+    {{ fixed }} card{{ '' if fixed == 1 else 's' }} with a fixed due date.</p>
+</div>
+{% for g in groups %}
+<section class="panel">
+  <div class="sec-head"><h2>{{ g.name }}</h2><p class="meta">{{ g.cards|length }} card{{ '' if g.cards|length == 1 else 's' }}</p></div>
+  <div style="overflow-x:auto">
+  <table>
+    <thead><tr><th>Card</th><th>Every</th><th>Last used</th><th>Next due</th><th>Can come up</th><th>How it is spread</th></tr></thead>
+    <tbody>
+    {% for c in g.cards %}
+      <tr>
+        <td><b>{{ c.name }}</b></td>
+        <td>{{ c.every }}</td>
+        <td>{{ c.last_used }}</td>
+        <td>{{ c.next_due or '—' }}{% if c.status %}<br><span class="meta">{{ c.status }}</span>{% endif %}</td>
+        <td>{{ c.window }}</td>
+        <td class="meta">{{ c.spread }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</section>
+{% else %}
+<div class="panel"><p>No cards yet.</p></div>
+{% endfor %}
+{% endblock %}
+"""
+
 TEMPLATES = {
+    "overview.html": OVERVIEW,
     "base.html": BASE,
     "macros.html": MACROS,
     "dashboard.html": DASHBOARD,
@@ -3266,6 +3328,7 @@ def _form_values():
         "interval_days": interval,
         "theme": theme if theme in THEME_KEYS else "graphite",
         "active": 1 if f.get("active") else 0,
+        "exact_day": 1 if f.get("exact_day") else 0,
     }
 
 
@@ -3277,7 +3340,7 @@ def _blank(owner=""):
     return {
         "issuer": "", "nickname": "", "owner": owner, "last4": "", "notes": "",
         "interval_days": int(get_setting("default_interval") or 45),
-        "theme": "graphite", "active": 1,
+        "theme": "graphite", "active": 1, "exact_day": 0,
     }
 
 
@@ -3357,14 +3420,16 @@ def card_edit(card_id):
         ensure_person(v["owner"])
         _catalog_and_image(v)
         conn = db()
-        prev = conn.execute("SELECT interval_days, active FROM cards WHERE id=?", (card_id,)).fetchone()
+        prev = conn.execute("SELECT interval_days, active, exact_day FROM cards WHERE id=?", (card_id,)).fetchone()
         conn.execute(
             "UPDATE cards SET nickname=?, issuer=?, owner=?, last4=?, theme=?, interval_days=?, "
-            "notes=?, active=? WHERE id=?",
+            "notes=?, active=?, exact_day=? WHERE id=?",
             (v["nickname"], v["issuer"], v["owner"], v["last4"], v["theme"],
-             v["interval_days"], v["notes"], v["active"], card_id),
+             v["interval_days"], v["notes"], v["active"], v["exact_day"], card_id),
         )
-        if prev is None or prev["interval_days"] != v["interval_days"] or (not prev["active"] and v["active"]):
+        if (prev is None or prev["interval_days"] != v["interval_days"]
+                or bool(prev["exact_day"]) != bool(v["exact_day"])
+                or (not prev["active"] and v["active"])):
             plan_saved_card(conn, card_id)
         conn.commit()
         conn.close()
@@ -3374,6 +3439,7 @@ def card_edit(card_id):
         "issuer": row["issuer"], "nickname": row["nickname"], "owner": row["owner"],
         "last4": row["last4"], "notes": row["notes"], "interval_days": row["interval_days"],
         "theme": row["theme"] if row["theme"] in THEME_KEYS else "graphite", "active": row["active"],
+        "exact_day": row["exact_day"],
     }
     return _render_card_form(v, editing=True, card_id=card_id)
 
@@ -4698,24 +4764,95 @@ def card_names_save():
 @app.route("/cards/settings")
 def card_settings_page():
     s = {k: get_setting(k) for k in ("default_interval", "stagger_percent")}
+    default_days = int(s["default_interval"] or 45)
+    pct = stagger_percent()
+    s["stagger_percent"] = pct
+    example_early = default_days * pct // 100
     pictures_saved, pictures_missing = picture_health()
     return _render(
-        "card_settings.html", page="card_settings", s=s, catalog=catalog_groups(),
+        "card_settings.html", page="card_settings", s=s, catalog=catalog_groups(), example_early=example_early,
         issuer_names=list_issuers(), card_name_pages=CARD_NAME_PAGES,
         pictures_saved=pictures_saved, pictures_missing=pictures_missing,
         picture_folder=CARD_IMG_DIR, real_art_url=REAL_ART_URL,
     )
 
 
+def _day_label(d):
+    return f"{d:%a} {d:%b} {d.day}, {d.year}"
+
+
+@app.get("/overview")
+def overview_page():
+    """A read-only page: every card grouped by owner, when it comes up, and how its due date is spread."""
+    conn = db()
+    rows = conn.execute("SELECT * FROM cards ORDER BY owner, issuer, nickname").fetchall()
+    conn.close()
+    today = date.today()
+    stagger = stagger_percent()
+    buckets, paused, fixed = {}, 0, 0
+    for r in rows:
+        exact = bool(r["exact_day"])
+        name = " ".join(x for x in (r["issuer"], r["nickname"]) if x)
+        if r["last4"]:
+            name += f" ••{r['last4']}"
+        item = {"name": name, "every": f"{r['interval_days']} days", "active": bool(r["active"]),
+                "last_used": _day_label(date.fromisoformat(r["last_used"])) if r["last_used"] else "Never",
+                "next_due": "", "status": "", "window": "", "spread": ""}
+        if not r["active"]:
+            paused += 1
+            item.update(status="Paused", window="Not in rotation", spread="Paused cards are not planned.")
+        else:
+            planned = card_due_date(r)
+            days = (planned - today).days
+            item["next_due"] = _day_label(planned)
+            item["status"] = ("Overdue" if days < 0 else "Due today" if days == 0
+                              else f"In {days} day{'s' if days != 1 else ''}")
+            lo, hi = due_window(r["last_used"], r["interval_days"], today, exact)
+            early = (hi - lo).days
+            if exact:
+                fixed += 1
+                item.update(window=_day_label(hi), spread="Fixed due date. It never moves to a random day.")
+            elif not stagger:
+                item.update(window=_day_label(hi), spread="Spreading is off. Due on the cycle end.")
+            elif early == 0:
+                item.update(window=_day_label(hi), spread="Only this day is allowed.")
+            else:
+                item.update(window=f"{_day_label(lo)} to {_day_label(hi)}",
+                            spread=f"Can come up up to {early} day{'s' if early != 1 else ''} early, "
+                                   "on the least busy day in that range.")
+        buckets.setdefault(r["owner"] or "", []).append(item)
+    groups = [{"name": owner or "Unassigned", "cards": buckets[owner]}
+              for owner in sorted(buckets, key=lambda n: (n == "", n.lower()))]
+    return _render(
+        "overview.html", page="overview", groups=groups, total=len(rows), paused=paused,
+        fixed=fixed, stagger=stagger, default=int(get_setting("default_interval") or 45),
+    )
+
+
 @app.post("/cards/settings/save")
 def card_settings_save():
+    """Saves the defaults, then applies them: cards on the old default move to the new one (cards with their own
+    number keep it), and every active card's due date is planned again from the new settings."""
+    old_default = int(get_setting("default_interval") or 45)
     for key, lo, hi in (("default_interval", 1, 3650), ("stagger_percent", 0, 50)):
         if key in request.form:
             try:
                 set_setting(key, min(hi, max(lo, int(request.form.get(key, "")))))
             except ValueError:
                 pass
-    flash("Card settings saved.")
+    new_default = int(get_setting("default_interval") or 45)
+    conn = db()
+    moved = 0
+    if new_default != old_default:
+        moved = conn.execute("UPDATE cards SET interval_days=? WHERE interval_days=?",
+                             (new_default, old_default)).rowcount
+    count, days = spread_all_cards(conn)
+    conn.commit()
+    conn.close()
+    msg = f"Card settings saved. {count} active card{'' if count == 1 else 's'} planned again"
+    if moved:
+        msg += f", and {moved} card{'' if moved == 1 else 's'} moved to the new default of {new_default} days"
+    flash(msg + ".")
     return redirect(url_for("card_settings_page"))
 
 
@@ -4940,7 +5077,7 @@ def settings_page():
         "settings.html", page="settings", s=s, catalog=catalog_groups(),
         pictures_saved=pictures_saved, pictures_missing=pictures_missing, picture_folder=CARD_IMG_DIR,
         real_art_url=REAL_ART_URL,
-        token_set=bool(get_setting("ntfy_token")),
+        token_set=bool(get_setting("ntfy_token")), test_state=_test_card_state(),
         phone=phone_server(), phone_saved=get_setting("phone_address"), phone_guess=phone_guess(),
         guess_is_name=host_is_name(), app_saved=get_setting("app_address"), app_now=app_address(),
         address_warnings=address_problems(phone_server(), app_address()),
