@@ -10,8 +10,13 @@ exposing it to the internet.
 
 ## Install on Unraid
 
-Search for **Credit-KeepAlive** in Community Applications and install it. The template is also in this
-repository at `unraid/my-Credit-Keepalive.xml`.
+Credit-KeepAlive is in Unraid's Community Applications:
+
+1. Open the Apps tab and search for Credit-KeepAlive.
+2. Click Install, check the ports (web `8686`, phone `2586`), and Apply.
+3. Open `http://<server-ip>:8686`.
+
+To install from this repository instead, copy `unraid/my-Credit-Keepalive.xml` to `/boot/config/plugins/dockerMan/templates-user/` on your server. Then open the Docker tab, click **Add Container**, choose Credit-KeepAlive from the template list, and Apply.
 
 | Setting | Required? | What to enter |
 |---|---|---|
