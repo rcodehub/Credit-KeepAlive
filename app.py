@@ -1733,6 +1733,16 @@ label .meta{display:block;font-weight:400;margin-top:3px;line-height:1.4}
   .theme-menu{position:static}
   .theme-panel{left:12px;right:12px;width:auto}
 }
+.busy{display:flex;flex-direction:column;gap:8px}
+.busy-bar{height:8px;border-radius:999px;background:var(--bg2);overflow:hidden;position:relative}
+.busy-bar span{position:absolute;top:0;bottom:0;width:35%;border-radius:999px;background:linear-gradient(90deg,var(--accent),var(--accent2));animation:busy-slide 1.3s ease-in-out infinite}
+@keyframes busy-slide{0%{left:-35%}100%{left:100%}}
+@media (prefers-reduced-motion:reduce){.busy-bar span{animation-duration:3s}}
+.pick-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px}
+.pick-item{border:1px solid var(--line);border-radius:14px;padding:10px;background:var(--bg);display:flex;flex-direction:column;gap:8px;min-width:0}
+.pick-item img{width:100%;aspect-ratio:1.586/1;object-fit:contain;background:var(--card);border-radius:10px}
+.pick-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pick-item select{font-size:.85rem}
 .confirm-box{max-width:340px;margin:12vh auto 0;text-align:center}
 """
 
@@ -2570,12 +2580,17 @@ CARD_SETTINGS = r"""{% extends 'base.html' %}
           <div class="actions"><button class="ghost" type="submit">Upload pictures</button></div>
         </form>
 
-        <form method="post" action="{{ url_for('card_pictures_scrape') }}" class="subpanel">
+        <form method="post" action="{{ url_for('card_pictures_scrape') }}" class="subpanel" data-busy
+              data-steps="Opening the page…|Looking through the page for card pictures…|Downloading the matching pictures. This can take up to 30 seconds.">
           <h3>Find pictures on an issuer's page</h3>
           <label>Page address <span class="meta">Only pictures that name a card in your list are used, and you still check each one. Pages that load pictures with scripts won't work.</span>
             <input type="url" name="url" maxlength="500" placeholder="https://creditcards.chase.com/travel-credit-cards" required>
           </label>
           <div class="actions"><button class="ghost" type="submit">Find pictures</button></div>
+          <div class="busy" hidden>
+            <div class="busy-bar"><span></span></div>
+            <p class="meta" data-busy-text aria-live="polite">Opening the page…</p>
+          </div>
         </form>
       </div>
 
@@ -2642,6 +2657,82 @@ CARD_SETTINGS = r"""{% extends 'base.html' %}
 
   </div>
 </div>
+<script>
+document.querySelectorAll('form[data-busy]').forEach(function (f) {
+  f.addEventListener('submit', function () {
+    var box = f.querySelector('.busy'), txt = f.querySelector('[data-busy-text]');
+    var btn = f.querySelector('button[type=submit]');
+    var steps = (f.getAttribute('data-steps') || '').split('|');
+    if (box) box.hidden = false;
+    if (btn) { btn.disabled = true; btn.textContent = 'Working…'; }
+    var t0 = Date.now();
+    setInterval(function () {
+      var s = Math.floor((Date.now() - t0) / 1000);
+      var i = Math.min(steps.length - 1, Math.floor(s / 8));
+      if (txt) txt.textContent = (steps[i] || 'Working…') + ' (' + s + ' s)';
+    }, 500);
+  });
+});
+</script>
+{% endblock %}
+"""
+
+CARD_PICK = r"""{% extends 'base.html' %}
+{% block title %}Choose pictures · Credit-KeepAlive{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Choose pictures</h1>
+  <p class="meta">The search couldn't match any pictures to your cards, so here is every picture on
+    <a href="{{ page_url }}" target="_blank" rel="noopener noreferrer">the page you searched</a>.
+    Tick the ones you want and choose the card for each one.</p>
+</div>
+{% for p in problems %}<div class="notice"><p>{{ p }}</p></div>{% endfor %}
+{% if items %}
+<form method="post" action="{{ url_for('card_pictures_pick_save') }}" class="stack" data-busy
+      data-steps="Downloading the chosen pictures…|Still downloading. Large pictures take longer.">
+  <input type="hidden" name="token" value="{{ token }}">
+  <div class="pick-grid">
+    {% for it in items %}
+    <div class="pick-item">
+      <img src="{{ it.url }}" alt="{{ it.desc or it.name }}" loading="lazy" referrerpolicy="no-referrer">
+      <div class="meta pick-name" title="{{ it.desc or it.name }}">{{ it.desc or it.name }}</div>
+      <label class="check"><input type="checkbox" name="keep" value="{{ loop.index0 }}"> Use this picture</label>
+      <select name="card_{{ loop.index0 }}" aria-label="Card for this picture">
+        <option value="">Choose a card…</option>
+        {% for o in options %}<option value="{{ o.val }}">{{ o.label }}</option>{% endfor %}
+      </select>
+    </div>
+    {% endfor %}
+  </div>
+  <div class="busy" hidden>
+    <div class="busy-bar"><span></span></div>
+    <p class="meta" data-busy-text aria-live="polite">Downloading the chosen pictures…</p>
+  </div>
+  <div class="actions">
+    <button class="primary" type="submit">Review and save selected</button>
+    <a class="ghost" href="{{ url_for('card_settings_page') }}">Cancel</a>
+  </div>
+</form>
+{% else %}
+<p class="meta">This page has no pictures to choose from. Try a page that shows the cards, or upload the pictures instead.</p>
+{% endif %}
+<script>
+document.querySelectorAll('form[data-busy]').forEach(function (f) {
+  f.addEventListener('submit', function () {
+    var box = f.querySelector('.busy'), txt = f.querySelector('[data-busy-text]');
+    var btn = f.querySelector('button[type=submit]');
+    var steps = (f.getAttribute('data-steps') || '').split('|');
+    if (box) box.hidden = false;
+    if (btn) { btn.disabled = true; btn.textContent = 'Working…'; }
+    var t0 = Date.now();
+    setInterval(function () {
+      var s = Math.floor((Date.now() - t0) / 1000);
+      var i = Math.min(steps.length - 1, Math.floor(s / 8));
+      if (txt) txt.textContent = (steps[i] || 'Working…') + ' (' + s + ' s)';
+    }, 500);
+  });
+});
+</script>
 {% endblock %}
 """
 
@@ -2701,6 +2792,7 @@ TEMPLATES = {
     "history.html": HISTORY,
     "settings.html": SETTINGS,
     "card_settings.html": CARD_SETTINGS,
+    "card_pictures_pick.html": CARD_PICK,
     "auth.html": AUTH,
     "confirm.html": CONFIRM,
 }
@@ -3395,7 +3487,7 @@ def _stage_and_review(uploads, problems):
             out.write(raw)
         entries.append({"idx": idx, "name": u["name"], "stored": stored, "hint": u.get("hint", ""),
                         "new_issuer": u.get("new_issuer", ""), "new_card": u.get("new_card", ""),
-                        "pick": "", "note": ""})
+                        "pick": "", "note": "", "forced": u.get("forced_pick", "")})
     if not entries:
         shutil.rmtree(folder, ignore_errors=True)
         flash("No usable pictures were uploaded." + (" " + "; ".join(problems) if problems else ""))
@@ -3423,6 +3515,9 @@ def _stage_and_review(uploads, problems):
             e["note"] = ("Not in the list yet. Check the issuer and name, then save to add it. " + note)
         else:
             e["note"] = note
+        if e.get("forced"):
+            e["pick"] = e["forced"]
+            e["note"] = "Chosen by you"
     _assign_once(entries)
     with open(os.path.join(folder, "manifest.json"), "w", encoding="utf-8") as fh:
         json.dump({"entries": entries}, fh)
@@ -3566,7 +3661,7 @@ def _card_name_from(desc, stem, issuer):
     return re.sub(r"\s+", " ", text).strip(" ,-:")[:80]
 
 
-def _scrape_pictures(page_url):
+def _scrape_pictures(page_url, candidates_out=None):
     """Find card pictures on a web page. Returns (uploads, problems).
 
     Every picture that looks like a card is taken. Pictures that name a card in the list are chosen for it.
@@ -3587,6 +3682,8 @@ def _scrape_pictures(page_url):
         return [], ["That address is not a web page."]
     finder = _ImageFinder(final)
     finder.feed(data.decode("utf-8", "replace"))
+    if candidates_out is not None:
+        candidates_out.extend(finder.images)
     if not finder.images:
         return [], ["No pictures were found on that page. Many card sites load pictures with scripts, "
                     "so a folder or ZIP upload may work better."]
@@ -3620,6 +3717,9 @@ def _scrape_pictures(page_url):
         if downloads >= SCRAPE_MAX_IMAGES or len(uploads) >= MAX_PICTURES:
             problems.append(f"Stopped after {len(uploads)} pictures.")
             break
+        if _public_url(url):
+            problems.append(f"{fname}: is not a public web address, so it was not downloaded")
+            continue
         downloads += 1
         try:
             _, raw, _ = _fetch(url, MAX_IMAGE_BYTES, "image/*")
@@ -3644,9 +3744,74 @@ def card_pictures_scrape():
     if not page:
         flash("Enter the address of a card page.")
         return redirect(url_for("card_settings_page"))
-    uploads, problems = _scrape_pictures(page)
+    found = []
+    uploads, problems = _scrape_pictures(page, candidates_out=found)
+    if uploads:
+        return _stage_and_review(uploads, problems)
+    web = [(u, d) for u, d in found if urlparse(u).scheme in ("http", "https")]
+    if web:
+        return _picker(page, web, problems)
+    flash("No card pictures could be taken from that page. " + " ".join(problems))
+    return redirect(url_for("card_settings_page"))
+
+
+def _picker(page, candidates, problems):
+    """Every picture on the page, for the user to tick and assign by hand."""
+    _clear_old_staging()
+    token = secrets.token_urlsafe(18)
+    folder = _stage_path(token)
+    os.makedirs(folder)
+    items = []
+    for url, desc in candidates[:SCRAPE_MAX_IMAGES * 2]:
+        items.append({"url": url, "desc": desc,
+                      "name": unquote(os.path.basename(urlparse(url).path))[:120] or "picture"})
+    with open(os.path.join(folder, "candidates.json"), "w", encoding="utf-8") as fh:
+        json.dump({"page": page, "items": items}, fh)
+    options = [{"val": _pick_value(c), "label": f"{c['issuer']} · {c['name']}"} for c in list_card_types()]
+    return _render("card_pictures_pick.html", page="card_settings", token=token, items=items,
+                   options=options, page_url=page, problems=problems)
+
+
+@app.post("/card-pictures/pick/save")
+def card_pictures_pick_save():
+    """Download the pictures the user ticked, each for the card they chose, and send them to the review."""
+    token = request.form.get("token", "")
+    if not re.fullmatch(r"[A-Za-z0-9_\-]{10,60}", token):
+        abort(400)
+    path = os.path.join(_stage_path(token), "candidates.json")
+    if not os.path.exists(path):
+        flash("That list of pictures has expired. Find the pictures again.")
+        return redirect(url_for("card_settings_page"))
+    with open(path, encoding="utf-8") as fh:
+        items = json.load(fh)["items"]
+    valid = {_pick_value(c) for c in list_card_types()}
+    uploads, problems = [], []
+    for raw_idx in request.form.getlist("keep"):
+        try:
+            i = int(raw_idx)
+            item = items[i]
+        except (ValueError, IndexError):
+            continue
+        choice = request.form.get(f"card_{i}", "")
+        if choice not in valid:
+            problems.append(f"{item['name']}: no card was chosen, so it was skipped")
+            continue
+        if len(uploads) >= MAX_PICTURES:
+            problems.append(f"Stopped after {len(uploads)} pictures.")
+            break
+        problem = _public_url(item["url"])
+        if problem:
+            problems.append(f"{item['name']}: not a public web address, so it was not downloaded")
+            continue
+        try:
+            _, raw, _ = _fetch(item["url"], MAX_IMAGE_BYTES, "image/*")
+        except Exception:
+            problems.append(f"{item['name']}: could not be downloaded")
+            continue
+        uploads.append({"name": item["name"], "raw": raw, "hint": "", "new_issuer": "", "new_card": "",
+                        "forced_pick": choice})
     if not uploads:
-        flash("No card pictures could be taken from that page. " + " ".join(problems))
+        flash("No pictures were selected. " + " ".join(problems))
         return redirect(url_for("card_settings_page"))
     return _stage_and_review(uploads, problems)
 

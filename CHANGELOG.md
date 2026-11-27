@@ -4,6 +4,9 @@ Newest day first. Within a day, the latest change is listed first.
 
 ### 2026-11-26
 
+- Find pictures shows a progress bar and elapsed time while it works.
+- If the search finds no matching pictures, every picture on the page is listed so you can tick the ones you want and choose the card for each.
+- Pictures from a page are refused if their address points to a private network.
 - Settings page redesigned: sections for reminders, phone alerts (four numbered steps), email alerts, login and tests.
 - New Card settings page: due dates, card pictures, and the issuer and card lists moved off Settings.
 - Theme options moved to a Theme menu in the top bar, available on every page.
