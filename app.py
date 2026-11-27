@@ -2659,7 +2659,7 @@ CARD_SETTINGS = r"""{% extends 'base.html' %}
         Overdue cards are due today.</p></div>
       <form method="post" action="{{ url_for('card_settings_save') }}" class="form">
         <div class="two">
-          <label>Default days between uses <span class="meta">Saving a new number sets every card to it, except cards with Fixed due date ticked.</span>
+          <label>Default days between uses <span class="meta">Saving sets every card without Fixed due date to this number.</span>
             <input name="default_interval" type="number" min="1" value="{{ s.default_interval }}">
           </label>
           <label>Spread due dates by up to (percent of the cycle) <span class="meta">Cards on the same schedule don't all fall on one day. 0 turns this off.</span>
@@ -2670,7 +2670,7 @@ CARD_SETTINGS = r"""{% extends 'base.html' %}
       </form>
       <form method="post" action="{{ url_for('settings_spread') }}" class="subpanel" style="margin-top:14px">
         <h3>Spread Due Dates Now</h3>
-        <p class="meta">Use this after changing several cards at once. It only moves due dates within the spread percent above, so nothing is due later than its cycle. Cards set to a fixed due date stay on their cycle end.</p>
+        <p class="meta">Sets every card without a fixed due date to the default days above, then spreads their due dates within the spread percent, so nothing is due later than its cycle. Cards set to a fixed due date keep their own days and cycle end.</p>
         <div class="actions"><button class="ghost" type="submit">Spread Due Dates Now</button></div>
       </form>
     </section>
@@ -4839,8 +4839,8 @@ def overview_page():
 
 @app.post("/cards/settings/save")
 def card_settings_save():
-    """Saves the defaults, then applies them: when the default days change, every card without a fixed due date
-    takes the new number (fixed due date cards keep their own), and every active card's due date is planned again."""
+    """Saves the defaults, then applies them: every card without a fixed due date takes the default days, and every
+    active card's due date is planned again."""
     old_default = int(get_setting("default_interval") or 45)
     for key, lo, hi in (("default_interval", 1, 3650), ("stagger_percent", 0, 50)):
         if key in request.form:
@@ -4850,10 +4850,7 @@ def card_settings_save():
                 pass
     new_default = int(get_setting("default_interval") or 45)
     conn = db()
-    moved = 0
-    if new_default != old_default:
-        moved = conn.execute("UPDATE cards SET interval_days=? WHERE exact_day=0 AND interval_days!=?",
-                             (new_default, new_default)).rowcount
+    moved = apply_default_days(conn)
     count, days = spread_all_cards(conn)
     conn.commit()
     conn.close()
@@ -5155,14 +5152,25 @@ def settings_default_pictures():
     return redirect(url_for("card_settings_page"))
 
 
+def apply_default_days(conn):
+    """Every card without Fixed due date takes the default days between uses. Returns how many changed."""
+    default = int(get_setting("default_interval") or 45)
+    return conn.execute("UPDATE cards SET interval_days=? WHERE exact_day=0 AND interval_days!=?",
+                        (default, default)).rowcount
+
+
 @app.post("/settings/spread")
 def settings_spread():
     conn = db()
+    changed = apply_default_days(conn)
     count, days = spread_all_cards(conn)
     conn.commit()
     conn.close()
-    flash(f"Spread {count} active card{'' if count == 1 else 's'} over their cycles. "
-          f"They now come up on {days} different day{'' if days == 1 else 's'}.")
+    msg = f"Spread {count} active card{'' if count == 1 else 's'} over their cycles. "
+    msg += f"They now come up on {days} different day{'' if days == 1 else 's'}."
+    if changed:
+        msg += f" {changed} card{'' if changed == 1 else 's'} changed to the default of {get_setting('default_interval')} days."
+    flash(msg)
     return redirect(url_for("card_settings_page"))
 
 
