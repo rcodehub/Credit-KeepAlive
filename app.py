@@ -3531,7 +3531,7 @@ def _stage_and_review(uploads, problems):
 SCRAPE_UA = "Mozilla/5.0 (compatible; CreditKeepAlive/1.0; self-hosted card picture helper)"
 SCRAPE_TIMEOUT = 8                  # seconds per request
 SCRAPE_BUDGET = 20                  # seconds for the whole search; the web server stops a request after 30
-SCRAPE_MAX_PAGE = 3 * 1024 * 1024
+SCRAPE_MAX_PAGE = 12 * 1024 * 1024  # larger pages are searched up to this point
 SCRAPE_MAX_IMAGES = 40
 
 
@@ -3566,13 +3566,16 @@ class _NoPrivateRedirect(HTTPRedirectHandler):
 _SCRAPE_OPENER = build_opener(_NoPrivateRedirect)
 
 
-def _fetch(url, limit, accept="*/*"):
-    """Returns (content type, bytes, final address). Raises if the request fails or the answer is larger than limit."""
+def _fetch(url, limit, accept="*/*", truncate=False):
+    """Returns (content type, bytes, final address). Raises if the request fails or the answer is larger than limit.
+    With truncate=True, a larger answer is cut to limit bytes instead of raising."""
     req = Request(url, headers={"User-Agent": SCRAPE_UA, "Accept": accept})
     with _SCRAPE_OPENER.open(req, timeout=SCRAPE_TIMEOUT) as r:
         data = r.read(limit + 1)
         if len(data) > limit:
-            raise ValueError("too large")
+            if not truncate:
+                raise ValueError("too large")
+            data = data[:limit]
         return r.headers.get("Content-Type", ""), data, r.geturl()
 
 
@@ -3671,11 +3674,11 @@ def _scrape_pictures(page_url, candidates_out=None):
     if problem:
         return [], [problem]
     try:
-        ctype, data, final = _fetch(page_url, SCRAPE_MAX_PAGE, "text/html")
+        ctype, data, final = _fetch(page_url, SCRAPE_MAX_PAGE, "text/html", truncate=True)
     except HTTPError as err:
         return [], [f"The page could not be opened (error {err.code})."]
     except ValueError:
-        return [], ["That page is larger than 3 MB, so it was not read."]
+        return [], ["The page could not be read."]
     except Exception:
         return [], ["The page could not be opened."]
     if "html" not in ctype.lower():
@@ -3691,6 +3694,9 @@ def _scrape_pictures(page_url, candidates_out=None):
     host = urlparse(final).hostname or ""
     page_issuer = _issuer_for_host(host, catalog)
     uploads, problems, skipped, downloads = [], [], 0, 0
+    if len(data) >= SCRAPE_MAX_PAGE:
+        problems.append("The page is very large, so only its first 12 MB was searched. "
+                        "If a picture is missing, save it from the page and upload it instead.")
     started = time.monotonic()
     for url, desc in finder.images:
         fname = unquote(os.path.basename(urlparse(url).path))[:120]
