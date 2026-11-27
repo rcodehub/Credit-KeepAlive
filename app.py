@@ -24,6 +24,7 @@ import socket
 import urllib.robotparser
 from html.parser import HTMLParser
 from urllib.parse import unquote, urldefrag, urljoin
+from urllib.request import urlopen
 from datetime import date, datetime, timedelta
 from urllib.parse import urlparse
 from urllib.error import HTTPError, URLError
@@ -2386,6 +2387,7 @@ SETTINGS = r"""{% extends 'base.html' %}
     <a href="#phone">Phone Alerts</a>
     <a href="#email">Email and Other Alerts</a>
     <a href="#login">Login and Password</a>
+    <a href="#proxy">Nginx Proxy Manager</a>
     <a href="#backup">Backup and Restore</a>
     <a href="#tests">Tests</a>
   </nav>
@@ -2423,14 +2425,19 @@ SETTINGS = r"""{% extends 'base.html' %}
           <div class="step-num">1</div>
           <div class="step-body">
             <h3>Address the Phones Connect To</h3>
+            {% for w in address_warnings %}<div class="notice"><p>{{ w }}</p></div>{% endfor %}
             <form method="post" action="{{ url_for('settings_addresses') }}" class="form">
-              <label>Phone server address <span class="meta">Leave blank to use {{ phone_guess }}{% if guess_is_name %}. You opened this app by name, so enter the address yourself{% endif %}.</span>
+              <label>Phone address <span class="meta">The phone app connects here. Use this computer's address and port 2586 (such as http://192.168.1.50:2586), or a separate hostname that your proxy sends to port 2586 (such as https://ntfy.example.com). Leave blank to use {{ phone_guess }}{% if guess_is_name %}. You opened this app by name, so enter it yourself{% endif %}.</span>
                 <input name="phone_address" value="{{ phone_saved }}" placeholder="{{ phone_guess }}">
               </label>
-              <label>Web address of this app <span class="meta">Used by the Mark used buttons. Filled in the first time you log in.</span>
+              <label>Web address <span class="meta">The Mark Used buttons open this. Use this computer's address and port 8686 (such as http://192.168.1.50:8686), or a separate hostname that your proxy sends to port 8686 (such as https://keepalive.example.com). With a proxy, this must be a different hostname from the phone address.</span>
                 <input name="app_address" value="{{ app_saved or app_now }}" placeholder="http://192.168.1.50:8686">
               </label>
               <div class="actions"><button class="ghost" type="submit">Save Addresses</button></div>
+            </form>
+            <form method="post" action="{{ url_for('settings_check_address') }}" class="form" style="margin-top:10px">
+              <div class="actions"><button class="ghost small" type="submit">Check Web Address</button>
+                <span class="meta">Asks this server to reach the web address and confirm it is Credit-KeepAlive.</span></div>
             </form>
             <div class="tips">
               <div class="tip">
@@ -2556,6 +2563,49 @@ SETTINGS = r"""{% extends 'base.html' %}
           <label>New password (8+ characters)<input name="new" type="password" minlength="8" autocomplete="new-password" required></label>
         </div>
         <div class="actions"><button type="submit">Change Password</button></div>
+      </form>
+    </section>
+
+    <section id="proxy" class="panel">
+      <div class="sec-head">
+        <h2>Nginx Proxy Manager</h2>
+        <p class="meta">Lists, creates and removes the proxy hosts for the phone address and the web address. Your login is used for each action and is not saved.</p>
+      </div>
+      {% if npm %}<div class="notice"><p>{{ npm.message }}</p></div>{% endif %}
+      <form method="post" action="{{ url_for('settings_proxies') }}" class="form">
+        <div class="two">
+          <label>Nginx Proxy Manager address <span class="meta">Its admin address, usually port 81, such as http://192.168.1.50:81.</span>
+            <input name="npm_url" type="url" maxlength="300" value="{{ npm_url }}" placeholder="http://192.168.1.50:81" required>
+          </label>
+          <label>Forward to this server <span class="meta">The address Nginx Proxy Manager uses to reach this server, usually the Unraid server's IP.</span>
+            <input name="forward_host" maxlength="253" value="{{ forward_default }}" required>
+          </label>
+        </div>
+        <div class="two">
+          <label>Login email
+            <input name="identity" type="text" maxlength="200" autocomplete="username" required>
+          </label>
+          <label>Login password <span class="meta">Used for this action only.</span>
+            <input name="secret" type="password" maxlength="500" autocomplete="current-password" required>
+          </label>
+        </div>
+        <div class="actions">
+          <button class="ghost small" name="action" value="list" type="submit">Show Proxy Hosts</button>
+          <button class="primary small" name="action" value="setup" type="submit">Create Phone and Web Proxies</button>
+        </div>
+        {% if npm and npm.hosts is defined %}
+        <div class="stack-col" style="margin-top:14px">
+          {% for h in npm.hosts %}
+          <div class="row">
+            <span>{{ h.domains or "No domain" }} → {{ h.target }}{% if not h.enabled %} <span class="meta">(disabled)</span>{% endif %}</span>
+            <button class="danger small" name="action" value="remove:{{ h.id }}" type="submit"
+                    onclick='return confirm({{ ("Remove the proxy for " ~ (h.domains or "this host") ~ "?")|tojson }});'>Remove</button>
+          </div>
+          {% else %}
+          <p class="meta">No proxy hosts yet.</p>
+          {% endfor %}
+        </div>
+        {% endif %}
       </form>
     </section>
 
@@ -4938,10 +4988,13 @@ def settings_page():
         token_set=bool(get_setting("ntfy_token")),
         phone=phone_server(), phone_saved=get_setting("phone_address"), phone_guess=phone_guess(),
         guess_is_name=host_is_name(), app_saved=get_setting("app_address"), app_now=app_address(),
+        address_warnings=address_problems(phone_server(), app_address()),
         topic_mode=topic_mode(),
         ntfy={"up": phone_server_ready(), "builtin": builtin,
               "topic": topic_from(topic) if builtin else ""},
         ntfy_logins=ntfy_logins(), look_themes=appearance_themes(),
+        npm=session.pop("npm_result", None), npm_url=get_setting("npm_url") or "",
+        forward_default=request.host.split(":")[0],
     )
 
 
@@ -5120,7 +5173,7 @@ def settings_ntfy_login(user):
 @app.post("/settings/addresses")
 def settings_addresses():
     values = {}
-    for field, label in (("phone_address", "Phone server address"), ("app_address", "Web address of this app")):
+    for field, label in (("phone_address", "Phone address"), ("app_address", "Web address")):
         value = request.form.get(field, "").strip().rstrip("/")
         parts = urlparse(value)
         if value and (parts.scheme not in ("http", "https") or not parts.netloc):
@@ -5130,6 +5183,174 @@ def settings_addresses():
     for field, value in values.items():
         set_setting(field, value)
     flash("Addresses saved.")
+    return redirect(url_for("settings_page"))
+
+
+def address_problems(phone, web):
+    """Warnings about the two addresses that would stop the phone or the Mark Used buttons working."""
+    out = []
+    p, w = urlparse(phone or ""), urlparse(web or "")
+    if web and w.port == 2586:
+        out.append("The web address uses port 2586, which is the phone server's port. Mark Used buttons need the "
+                   "web port 8686, or a web hostname that your proxy sends to port 8686.")
+    if phone and web and p.hostname and p.hostname == w.hostname and p.port == w.port:
+        out.append("The phone address and the web address are the same. The phone and the Mark Used buttons "
+                   "reach different services, so a proxy host can only send them to one of them. Give the phone "
+                   "server its own hostname, for example ntfy.example.com to port 2586 and keepalive.example.com "
+                   "to port 8686. Until then, the Mark Used buttons get a 404.")
+    return out
+
+
+@app.post("/settings/check-address")
+def settings_check_address():
+    """Asks this server to reach the web address and checks that the answer comes from Credit-KeepAlive."""
+    base = app_address()
+    if not base:
+        flash("Enter the web address first.")
+        return redirect(url_for("settings_page"))
+    try:
+        _, body, _ = _fetch(base + "/healthz", 200, "text/plain")
+    except HTTPError as err:
+        flash(f"{base} answered with HTTP {err.code}, so it is not reaching Credit-KeepAlive. "
+              "Check the proxy host and its port.")
+        return redirect(url_for("settings_page"))
+    except Exception:
+        flash(f"Could not reach {base} from this server. Some proxy setups block this check, so open "
+              "that address in a browser on another device to confirm.")
+        return redirect(url_for("settings_page"))
+    if body.strip() == b"ok":
+        flash(f"Reached Credit-KeepAlive at {base}. The Mark Used buttons can use this address.")
+    else:
+        flash(f"{base} answered, but not as Credit-KeepAlive. Check the proxy host and its port.")
+    return redirect(url_for("settings_page"))
+
+
+# -- Nginx Proxy Manager: lists, creates and removes the proxy hosts for the phone and the web app
+NPM_TIMEOUT = 10
+PROXY_PORTS = {"phone": 2586, "web": 8686}
+
+
+class NpmError(Exception):
+    """A message that can be shown to the user as it is."""
+
+
+def npm_request(base, method, path, token=None, body=None):
+    """One call to the Nginx Proxy Manager API. Returns the parsed JSON, or None for an empty answer."""
+    headers = {"Accept": "application/json", "X-API-Version": "next"}
+    data = None
+    if body is not None:
+        data = json.dumps(body).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    req = Request(f"{base}/api{path}", data=data, headers=headers, method=method)
+    try:
+        with urlopen(req, timeout=NPM_TIMEOUT) as r:
+            raw = r.read(2 * 1024 * 1024)
+    except HTTPError as err:
+        if path == "/tokens" and err.code in (400, 401, 403):
+            raise NpmError("Nginx Proxy Manager did not accept that login.")
+        if err.code in (401, 403):
+            raise NpmError("Nginx Proxy Manager refused the request.")
+        raise NpmError(f"Nginx Proxy Manager answered with HTTP {err.code}.")
+    except (URLError, OSError):
+        raise NpmError(f"Could not reach Nginx Proxy Manager at {base}.")
+    if not raw.strip():
+        return None
+    try:
+        return json.loads(raw.decode("utf-8"))
+    except ValueError:
+        raise NpmError("Nginx Proxy Manager sent an answer in a format this app does not understand.")
+
+
+def npm_login(base, identity, secret):
+    answer = npm_request(base, "POST", "/tokens", body={"identity": identity, "secret": secret})
+    token = answer.get("token") if isinstance(answer, dict) else None
+    if not token:
+        raise NpmError("Nginx Proxy Manager did not return a login token.")
+    return token
+
+
+def npm_hosts(base, token):
+    answer = npm_request(base, "GET", "/nginx/proxy-hosts", token)
+    return [h for h in (answer or []) if isinstance(h, dict)]
+
+
+def npm_host_rows(hosts):
+    """The parts of each proxy host that the Settings page shows. Stored in the session, so no secrets."""
+    return [{"id": h.get("id"), "domains": ", ".join(h.get("domain_names") or []),
+             "target": f"{h.get('forward_scheme') or 'http'}://{h.get('forward_host')}:{h.get('forward_port')}",
+             "enabled": bool(h.get("enabled", True))} for h in hosts]
+
+
+def npm_setup(base, token, forward, hosts):
+    """Creates a proxy host for the phone address and one for the web address. Returns a message."""
+    if not re.fullmatch(r"[A-Za-z0-9.\-]{1,253}", forward or ""):
+        raise NpmError("Enter the address Nginx Proxy Manager uses to reach this server, such as 192.168.1.50.")
+    phone_dom = urlparse(phone_server()).hostname or ""
+    web_dom = urlparse(app_address()).hostname or ""
+    if not phone_dom or not web_dom:
+        raise NpmError("Set the phone address and the web address in Settings first.")
+    if phone_dom == web_dom:
+        raise NpmError("The phone address and the web address use the same host. Give them different hostnames first.")
+    for dom in (phone_dom, web_dom):
+        if re.fullmatch(r"[0-9.]+|\[?[0-9a-fA-F:]+\]?", dom):
+            raise NpmError(f"{dom} is an IP address. Proxy hosts need a hostname, such as ntfy.example.com.")
+    existing = {d.lower() for h in hosts for d in (h.get("domain_names") or [])}
+    made, skipped = [], []
+    for name, dom in (("phone", phone_dom), ("web", web_dom)):
+        if dom.lower() in existing:
+            skipped.append(dom)
+            continue
+        npm_request(base, "POST", "/nginx/proxy-hosts", token, body={
+            "domain_names": [dom], "forward_scheme": "http", "forward_host": forward,
+            "forward_port": PROXY_PORTS[name], "certificate_id": 0, "ssl_forced": False,
+            "hsts_enabled": False, "hsts_subdomains": False, "http2_support": False,
+            "block_exploits": True, "caching_enabled": False, "allow_websocket_upgrade": True,
+            "access_list_id": 0, "advanced_config": "", "enabled": True, "meta": {}, "locations": [],
+        })
+        made.append(f"{dom} to port {PROXY_PORTS[name]}")
+    msg = ("Created " + ", ".join(made) + ".") if made else "Nothing was created."
+    if skipped:
+        msg += " Already there: " + ", ".join(skipped) + "."
+    return msg + " Add SSL to these hosts in Nginx Proxy Manager if you need it."
+
+
+@app.post("/settings/proxies")
+def settings_proxies():
+    """Lists, creates or removes Nginx Proxy Manager proxy hosts. The login is used for this request and is not saved."""
+    base = request.form.get("npm_url", "").strip().rstrip("/")[:300]
+    forward = request.form.get("forward_host", "").strip()[:253]
+    identity = request.form.get("identity", "").strip()[:200]
+    secret = request.form.get("secret", "")[:500]
+    action = request.form.get("action", "")
+    parts = urlparse(base)
+    if parts.scheme not in ("http", "https") or not parts.netloc:
+        flash("Enter the Nginx Proxy Manager address, such as http://192.168.1.50:81.")
+        return redirect(url_for("settings_page"))
+    set_setting("npm_url", base)
+    if not identity or not secret:
+        flash("Enter the Nginx Proxy Manager login. It is used now and not saved.")
+        return redirect(url_for("settings_page"))
+    try:
+        token = npm_login(base, identity, secret)
+        hosts = npm_hosts(base, token)
+        message = "Proxy hosts listed."
+        if action == "setup":
+            message = npm_setup(base, token, forward, hosts)
+            hosts = npm_hosts(base, token)
+        elif action.startswith("remove:") and action[7:].isdigit():
+            target = int(action[7:])
+            name = next((r["domains"] for r in npm_host_rows(hosts) if r["id"] == target), str(target))
+            npm_request(base, "DELETE", f"/nginx/proxy-hosts/{target}", token)
+            message = f"Removed the proxy for {name}."
+            hosts = npm_hosts(base, token)
+        elif action != "list":
+            abort(400)
+    except NpmError as err:
+        flash(str(err))
+        return redirect(url_for("settings_page"))
+    session["npm_result"] = {"message": message, "hosts": npm_host_rows(hosts)}
     return redirect(url_for("settings_page"))
 
 
