@@ -2,6 +2,19 @@
 
 Newest day first. Within a day, the latest change is listed first.
 
+## Overview
+
+What Credit-KeepAlive can do now, grouped by area. The daily entries below have the detail.
+
+- **Cards and due dates:** Each card has a number of days between uses. Spreading sets every card without Fixed due date to the default number, then gives it a random due date in its window. The window runs up to the spread percentage early to the cycle end. Spreading is done per owner, so each person's schedule is independent. Fixed due date keeps a card on its own days and cycle end. Mark used re-plans the card. Card Settings explains the spread percentage. An Overview page shows every card by owner, with its next due date, window and spread.
+- **Cards and pictures:** Import cards from an Excel (.xlsx) or CSV file with dropdowns. Find Card Names reads an issuer's site for card names. Find Pictures reads an issuer's page (up to 12 MB) for card pictures, with progress and a choice of matches. Pictures are served through this server.
+- **Phones and email:** Phone and web addresses are found automatically and can be changed in Settings, with warnings for common mistakes and a Check Web Address button. Choose one household topic or one per person. Phone logins can use your own passwords. Settings has four numbered steps for each phone. Email works through Apprise.
+- **Testing:** Send Test Due Card sends a fake reminder with a Mark Used button, and shows on Settings and the test page whether the button reached the app. Test messages check that the phone server stored them.
+- **Backup and restore:** One zip holds every card, setting, picture and phone login. Restore checks the zip before changing anything.
+- **Settings and look:** Settings has sections for reminders, phone alerts, email alerts, login and tests. Card Settings holds due dates, pictures, issuers and cards. A Theme menu sets 10 colour themes, light or dark, corner rounding, font, shadows and page width, with a live preview. Headings use Proper Case.
+- **Security:** CSRF protection on every form, security headers, login lockout per address, a rate limit on Mark Used, a Secure cookie over HTTPS, no caching of pages with card details, and a password change signs out other browsers. Pictures from private network addresses are refused.
+- **Reliability:** The phone server starts reliably on first run. Every page shows its version (date, run number and commit). deploy.bat copies the files it needs.
+
 ### 2026-11-26
 
 - Spread Due Dates Now and saving Card Settings now set every card without Fixed due date to the default days, then spread the due dates. Before, spreading moved dates only, so a card set to 1 day stayed at 1 day. Fixed due date cards keep their own days.

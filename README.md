@@ -65,8 +65,10 @@ log in again on each phone.
 - **Email** works through Apprise. Add an address in Settings, for example
   `mailto://yourname:app-password@gmail.com?to=you@example.com`.
 - **Card settings**: default days between uses, spreading of due dates, card pictures, and the issuer and card lists. Find Card Names reads an issuer's card list page and lists the card names it finds for you to tick.
+- **Default days between uses** applies to every card without Fixed due date. Saving Card Settings sets those cards to the number you enter, including cards with their own number.
+- **Spreading due dates** (Card Settings, or Spread Due Dates Now) sets each card without Fixed due date to the default days, then gives it a random due date within its window. The window runs from up to the spread percentage early to the cycle end. Days are picked to avoid days that already have cards due, but only among cards of the same owner, because each person's credit use is individual. Set the percentage to 0 to always use the cycle end. Overdue cards are due today.
+- **Fixed due date** (Edit Card) keeps a card on its cycle end and on its own number of days. Spreading and the default never move it.
 - **Overview** (top menu) lists every card by owner, with when it comes up and how its due date is spread. It is read-only.
-- **Fixed due date** (Edit Card) keeps a card on its cycle end instead of a random day within the spread percentage.
 - **Send Test Due Card** (Settings → Tests) sends a fake reminder with a Mark Used button. Press it on your phone or follow the email link, then Check Test Result shows that the button reached the app. No card is changed.
 - **Backup and restore** (Settings): Download backup saves every card, setting, card picture and the phone server's logins to one zip. Restore replaces everything from a backup zip. The zip holds logins and secrets, so store it privately. Restart the phone server after a restore.
 - **Theme**: the Theme button in the top bar sets the colour theme, light or dark, corner rounding, font, shadows and page width.
