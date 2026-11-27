@@ -1122,7 +1122,7 @@ def notify_ntfy(url, title, message, card_id=None):
     return ok, msg
 
 
-def publish_ntfy(url, title, message, card_id=None):
+def publish_ntfy(url, title, message, card_id=None, mark_url=None):
     """Like notify_ntfy, and also returns the id ntfy gave the message (None if unknown)."""
     url = resolve_ntfy(url)
     p = urlparse(url)
@@ -1133,11 +1133,11 @@ def publish_ntfy(url, title, message, card_id=None):
     base = app_address()
     if base:
         payload["click"] = base + "/"
-        if card_id is not None:
+        if mark_url or card_id is not None:
             payload["actions"] = [{
                 "action": "http",
                 "label": "Mark used",
-                "url": used_url(card_id, quiet=True),
+                "url": mark_url or used_url(card_id, quiet=True),
                 "method": "POST",
                 "clear": True,
             }]
@@ -2589,7 +2589,10 @@ SETTINGS = r"""{% extends 'base.html' %}
       <div class="actions">
         <form method="post" action="{{ url_for('settings_test') }}"><button class="ghost" type="submit">Send Test Message</button></form>
         <form method="post" action="{{ url_for('settings_check') }}"><button class="ghost" type="submit">Send Due Reminders Now</button></form>
+        <form method="post" action="{{ url_for('settings_test_card') }}"><button class="ghost" type="submit">Send Test Due Card</button></form>
+        <a class="ghost" href="{{ url_for('settings_test_card') }}">Check Test Result</a>
       </div>
+      <p class="meta" style="margin-top:12px">Send Test Due Card sends a fake reminder with a Mark Used button. Pressing it checks that the button reaches this app. No card is changed.</p>
     </section>
 
   </div>
@@ -2884,9 +2887,17 @@ body{display:grid;place-items:center}
 </style></head>
 <body>
 <div class="panel confirm-box">
-  {% if done %}
+  {% if expired %}
+    <p>This test has expired. Send a new test from Settings.</p>
+  {% elif done and test %}
+    <div style="font-size:38px;color:var(--ok)">✓</div>
+    <p><b>Test passed.</b> The Mark Used button works. No card was changed.</p>
+  {% elif done %}
     <div style="font-size:38px;color:var(--ok)">✓</div>
     <p><b>{{ name }}</b> marked as used today.</p>
+  {% elif test %}
+    <p>Run the Mark Used test? No card will be changed.</p>
+    <form method="post"><button class="primary" type="submit" style="margin-top:6px">Run Test</button></form>
   {% else %}
     <p>Mark <b>{{ name }}</b> as used today?</p>
     <form method="post"><button class="primary" type="submit" style="margin-top:6px">Yes, Mark Used</button></form>
@@ -2924,6 +2935,31 @@ CARD_NAMES = r"""{% extends 'base.html' %}
 {% endblock %}
 """
 
+TEST_CARD = r"""{% extends 'base.html' %}
+{% block title %}Test Due Card · Credit-KeepAlive{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Test Due Card</h1>
+  <p class="meta">A fake reminder for a card called Test Card. Press its Mark Used button on your phone, or the link in the email. No real card is changed.</p>
+</div>
+{% if state == 'passed' %}
+<div class="panel"><p><b>Passed.</b> The Mark Used button reached Credit-KeepAlive at {{ marked_at }}.</p></div>
+{% elif state == 'waiting' %}
+<div class="panel"><p>Waiting for the button. This page checks again every 5 seconds.</p>
+  <p class="meta">The test link expires at {{ expires }}.</p></div>
+<script>setTimeout(function () { location.reload(); }, 5000);</script>
+{% elif state == 'expired' %}
+<div class="panel"><p>The test has expired before the button was pressed. Send a new test.</p></div>
+{% else %}
+<div class="panel"><p>No test has been sent yet.</p></div>
+{% endif %}
+<div class="actions">
+  <form method="post" action="{{ url_for('settings_test_card') }}"><button class="primary small" type="submit">Send Test Due Card</button></form>
+  <a class="ghost" href="{{ url_for('settings_page') }}">Back to Settings</a>
+</div>
+{% endblock %}
+"""
+
 TEMPLATES = {
     "base.html": BASE,
     "macros.html": MACROS,
@@ -2936,6 +2972,7 @@ TEMPLATES = {
     "settings.html": SETTINGS,
     "card_settings.html": CARD_SETTINGS,
     "card_names.html": CARD_NAMES,
+    "test_card.html": TEST_CARD,
     "card_pictures_pick.html": CARD_PICK,
     "auth.html": AUTH,
     "confirm.html": CONFIRM,
@@ -2965,7 +3002,7 @@ LAST4_RE = re.compile(r"^\d{0,4}$")
 MIN_PASSWORD = 8
 
 # Reachable without login. used_link is guarded by its secret token instead.
-PUBLIC_ENDPOINTS = {"login", "setup", "used_link", "healthz", "static"}
+PUBLIC_ENDPOINTS = {"login", "setup", "used_link", "used_test_link", "healthz", "static"}
 
 def client_ip():
     """The address to count failures against.
@@ -3044,7 +3081,7 @@ def csrf_token():
 
 
 # Posts that come from outside the browser session. The Mark used link is guarded by its own secret token.
-CSRF_EXEMPT = {"used_link"}
+CSRF_EXEMPT = {"used_link", "used_test_link"}
 _FORM_RE = re.compile(r'(<form\b[^>]*\bmethod=["\']post["\'][^>]*>)', re.I)
 
 
@@ -3380,6 +3417,27 @@ def used_link(card_id, token):
             return "ok", 200
         return _render("confirm.html", name=row["nickname"], done=True)
     return _render("confirm.html", name=row["nickname"], done=False)
+
+
+@app.route("/used/test/<token>", methods=["GET", "POST"])
+def used_test_link(token):
+    """The Mark used button of a test reminder. It changes no card. It only records that the button reached this app."""
+    ip = client_ip()
+    if _link_brake.blocked(ip):
+        abort(429)
+    stored = get_setting("test_mark_token") or ""
+    if not stored or not secrets.compare_digest(token, stored):
+        _link_brake.fail(ip)
+        abort(404)
+    expires = get_setting("test_mark_expires") or ""
+    if not expires or datetime.fromisoformat(expires) < datetime.now():
+        return _render("confirm.html", name="Test Card", done=False, test=True, expired=True)
+    if request.method == "POST":
+        set_setting("test_mark_at", datetime.now().isoformat(timespec="seconds"))
+        if request.args.get("quiet"):
+            return "ok", 200
+        return _render("confirm.html", name="Test Card", done=True, test=True)
+    return _render("confirm.html", name="Test Card", done=False, test=True)
 
 
 @app.post("/card-list/issuer/remove")
@@ -4964,6 +5022,51 @@ def settings_test():
     else:
         flash(("Test sent. " if res[0] else "Test failed. ") + res[1])
     return redirect(url_for("settings_page"))
+
+
+def _test_card_state():
+    """Where the test card stands: none, waiting, passed (button pressed) or expired."""
+    if not (get_setting("test_mark_token") or ""):
+        return {"state": "none"}
+    marked = get_setting("test_mark_at") or ""
+    expires = get_setting("test_mark_expires") or ""
+    if marked:
+        return {"state": "passed", "marked_at": marked}
+    if not expires or datetime.fromisoformat(expires) < datetime.now():
+        return {"state": "expired", "expires": expires}
+    return {"state": "waiting", "expires": expires}
+
+
+@app.route("/settings/test-card", methods=["GET", "POST"])
+def settings_test_card():
+    """Sends a fake due-card reminder with the same Mark used button, then shows whether the button was pressed."""
+    if request.method == "GET":
+        return _render("test_card.html", page="settings", **_test_card_state())
+    base = app_address()
+    if not base:
+        flash("Set the web address of this app in Settings first. The Mark used button needs it.")
+        return redirect(url_for("settings_page"))
+    token = secrets.token_urlsafe(18)
+    expires = (datetime.now() + timedelta(minutes=30)).isoformat(timespec="seconds")
+    set_setting("test_mark_token", token)
+    set_setting("test_mark_expires", expires)
+    set_setting("test_mark_at", "")
+    link = f"{base}/used/test/{token}"
+    title = "Use Test Card"
+    body = "This is a test. No card is changed.\n\nTest Card ••1234: due now (test)"
+    ntfy, appr = get_setting("ntfy_url").strip(), get_setting("notify_urls")
+    results = []
+    if ntfy:
+        ok, msg, _ = publish_ntfy(ntfy, title, body, mark_url=link + "?quiet=1")
+        results.append((ok, msg))
+    if appr.strip():
+        results.append(notify_apprise(appr, title, body + f"\n\n[Mark used]({link})"))
+    if not results:
+        flash("No phone or email alerts are set up yet, so there was nothing to send the test to.")
+        return redirect(url_for("settings_test_card"))
+    ok_all = all(ok for ok, _ in results)
+    flash(("Test sent. " if ok_all else "Test failed. ") + " ".join(m for _, m in results))
+    return redirect(url_for("settings_test_card"))
 
 
 @app.post("/settings/check")

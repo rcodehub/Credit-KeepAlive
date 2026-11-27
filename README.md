@@ -62,6 +62,7 @@ log in again on each phone.
 - **Email** works through Apprise. Add an address in Settings, for example
   `mailto://yourname:app-password@gmail.com?to=you@example.com`.
 - **Card settings**: default days between uses, spreading of due dates, card pictures, and the issuer and card lists. Find Card Names reads an issuer's card list page and lists the card names it finds for you to tick.
+- **Send Test Due Card** (Settings → Tests) sends a fake reminder with a Mark Used button. Press it on your phone or follow the email link, then Check Test Result shows that the button reached the app. No card is changed.
 - **Backup and restore** (Settings): Download backup saves every card, setting, card picture and the phone server's logins to one zip. Restore replaces everything from a backup zip. The zip holds logins and secrets, so store it privately. Restart the phone server after a restore.
 - **Theme**: the Theme button in the top bar sets the colour theme, light or dark, corner rounding, font, shadows and page width.
 
