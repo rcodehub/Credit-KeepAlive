@@ -15,6 +15,10 @@ What Credit-KeepAlive can do now, grouped by area. The daily entries below have 
 - **Security:** CSRF protection on every form, security headers, login lockout per address, a rate limit on Mark Used, a Secure cookie over HTTPS, no caching of pages with card details, and a password change signs out other browsers. Pictures from private network addresses are refused.
 - **Reliability:** The phone server starts reliably on first run. Every page shows its version (date, run number and commit). deploy.bat copies the files it needs.
 
+### 2026-11-27
+
+- Last used date: enter the day a card was last used when adding or editing it. The next due date is worked out from that day. Leave it blank for a card never used. Future dates are refused. Entering a date does not add an entry to the usage history.
+
 ### 2026-11-26
 
 - Spread Due Dates Now and saving Card Settings now set every card without Fixed due date to the default days, then spread the due dates. Before, spreading moved dates only, so a card set to 1 day stayed at 1 day. Fixed due date cards keep their own days.

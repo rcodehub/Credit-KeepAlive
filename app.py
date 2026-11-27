@@ -2060,6 +2060,11 @@ CARD_FORM = r"""{% extends 'base.html' %}
       <input type="file" name="card_image" id="card_image" accept="image/png,image/jpeg,image/gif,image/webp">
     </label>
     <div class="two">
+      <label>Last used <span class="meta">The day this card was last used. Leave blank if it has never been used. The next due date is worked out from this day.</span>
+        <input name="last_used" type="date" value="{{ card.last_used or '' }}">
+      </label>
+    </div>
+    <div class="two">
       <label>Use every (days)
         <input name="interval_days" type="number" min="1" value="{{ card.interval_days }}" required list="interval-presets">
         <datalist id="interval-presets">
@@ -3322,6 +3327,15 @@ def _pick(f, choice_field, new_field):
 
 def _form_values():
     f = request.form
+    # Blank means never used. A date must be a real day that is not in the future.
+    raw_used = f.get("last_used", "").strip()
+    last_used, last_used_bad = "", False
+    if raw_used:
+        try:
+            last_used = date.fromisoformat(raw_used).isoformat()
+            last_used_bad = last_used > date.today().isoformat()
+        except ValueError:
+            last_used_bad = True
     try:
         interval = max(1, int(f.get("interval_days", "45")))
     except ValueError:
@@ -3337,11 +3351,14 @@ def _form_values():
         "theme": theme if theme in THEME_KEYS else "graphite",
         "active": 1 if f.get("active") else 0,
         "exact_day": 1 if f.get("exact_day") else 0,
+        "last_used": last_used,
+        "last_used_bad": last_used_bad,
     }
 
 
 def _valid(v):
-    return bool(v["nickname"]) and bool(LAST4_RE.match(v["last4"]))
+    return (bool(v["nickname"]) and bool(LAST4_RE.match(v["last4"]))
+            and not v.get("last_used_bad"))
 
 
 def _blank(owner=""):
@@ -3394,16 +3411,16 @@ def card_new():
     if request.method == "POST":
         v = _form_values()
         if not _valid(v):
-            flash("Enter a card name, and if you add digits, exactly the last 4.")
+            flash("Enter a card name, exactly the last 4 digits if you add any, and a last used date that is not in the future.")
             return _render_card_form(v, editing=False, card_id=None)
         ensure_person(v["owner"])
         _catalog_and_image(v)
         conn = db()
         conn.execute(
-            "INSERT INTO cards(nickname, issuer, owner, last4, theme, interval_days, notes, active) "
-            "VALUES(?,?,?,?,?,?,?,?)",
+            "INSERT INTO cards(nickname, issuer, owner, last4, theme, interval_days, notes, active, last_used) "
+            "VALUES(?,?,?,?,?,?,?,?,?)",
             (v["nickname"], v["issuer"], v["owner"], v["last4"], v["theme"],
-             v["interval_days"], v["notes"], v["active"]),
+             v["interval_days"], v["notes"], v["active"], v["last_used"] or None),
         )
         plan_saved_card(conn, conn.execute("SELECT last_insert_rowid()").fetchone()[0])
         conn.commit()
@@ -3423,20 +3440,24 @@ def card_edit(card_id):
     if request.method == "POST":
         v = _form_values()
         if not _valid(v):
-            flash("Could not save: check the card name and last 4 digits.")
+            flash("Could not save: check the card name, the last 4 digits and the last used date (not in the future).")
             return _render_card_form(v, editing=True, card_id=card_id)
         ensure_person(v["owner"])
         _catalog_and_image(v)
         conn = db()
-        prev = conn.execute("SELECT interval_days, active, exact_day FROM cards WHERE id=?", (card_id,)).fetchone()
+        prev = conn.execute("SELECT interval_days, active, exact_day, last_used FROM cards WHERE id=?", (card_id,)).fetchone()
+        new_used = v["last_used"] or None
         conn.execute(
             "UPDATE cards SET nickname=?, issuer=?, owner=?, last4=?, theme=?, interval_days=?, "
-            "notes=?, active=?, exact_day=? WHERE id=?",
+            "notes=?, active=?, exact_day=?, last_used=? WHERE id=?",
             (v["nickname"], v["issuer"], v["owner"], v["last4"], v["theme"],
-             v["interval_days"], v["notes"], v["active"], v["exact_day"], card_id),
+             v["interval_days"], v["notes"], v["active"], v["exact_day"], new_used, card_id),
         )
+        if prev is not None and prev["last_used"] != new_used:
+            conn.execute("UPDATE cards SET last_notified=NULL WHERE id=?", (card_id,))
         if (prev is None or prev["interval_days"] != v["interval_days"]
                 or bool(prev["exact_day"]) != bool(v["exact_day"])
+                or prev["last_used"] != new_used
                 or (not prev["active"] and v["active"])):
             plan_saved_card(conn, card_id)
         conn.commit()
@@ -3447,7 +3468,7 @@ def card_edit(card_id):
         "issuer": row["issuer"], "nickname": row["nickname"], "owner": row["owner"],
         "last4": row["last4"], "notes": row["notes"], "interval_days": row["interval_days"],
         "theme": row["theme"] if row["theme"] in THEME_KEYS else "graphite", "active": row["active"],
-        "exact_day": row["exact_day"],
+        "exact_day": row["exact_day"], "last_used": row["last_used"] or "",
     }
     return _render_card_form(v, editing=True, card_id=card_id)
 
