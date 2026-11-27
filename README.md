@@ -33,7 +33,7 @@ WebSocket support and set `TRUST_PROXY` to `1` in the template.
 
 ## Set up your phone
 
-With a reverse proxy (Cloudflare Tunnel or Nginx Proxy Manager), give the phone server and the web app their own hostnames. For example, `ntfy.example.com` sends to port 2586 for the phone, and `keepalive.example.com` sends to port 8686 for the web app and the Mark Used buttons. One hostname can't serve both, because the phone server would answer the Mark Used requests with a 404. Set both addresses in Settings → Address, then press Check Web Address. If you use Nginx Proxy Manager, Settings → Nginx Proxy Manager can create both proxy hosts for you. Your login is used for that action only and is not saved.
+With a reverse proxy (Cloudflare Tunnel or Nginx Proxy Manager), give the phone server and the web app their own hostnames. For example, `ntfy.example.com` sends to port 2586 for the phone, and `keepalive.example.com` sends to port 8686 for the web app and the Mark Used buttons. One hostname can't serve both, because the phone server would answer the Mark Used requests with a 404. Set both addresses in Settings → Address, then press Check Web Address.
 
 
 Settings has these four steps with your own addresses and passwords filled in.
