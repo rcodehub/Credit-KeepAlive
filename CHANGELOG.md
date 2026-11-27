@@ -4,6 +4,7 @@ Newest day first. Within a day, the latest change is listed first.
 
 ### 2026-11-26
 
+- Import: download an Excel template with dropdowns for the issuer, the card (listed for the chosen issuer) and the owner. Excel (.xlsx) and CSV files both import.
 - Find pictures reads pages up to 12 MB. Larger pages are searched from the top, and you are told when only part was searched (it used to refuse pages over 3 MB).
 - Find pictures shows a progress bar and elapsed time while it works.
 - If the search finds no matching pictures, every picture on the page is listed so you can tick the ones you want and choose the card for each.

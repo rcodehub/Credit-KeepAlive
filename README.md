@@ -57,7 +57,7 @@ log in again on each phone.
 - **People** controls each person's reminders. Turn them off without deleting anyone.
 - **History** lists every logged use. Undo removes an entry.
 - **Reminders** go out once a day at the hour set in Settings. Overdue cards repeat.
-- **Import** a CSV with the columns `Issuer,Card,Last4,Owner`. You review everything before it's saved.
+- **Import** cards from the Excel template (Settings → Card settings → Import, or the Import button) or a CSV with the columns `Issuer,Card,Last4,Owner`. You review everything before it's saved.
   Full card numbers are rejected.
 - **Email** works through Apprise. Add an address in Settings, for example
   `mailto://yourname:app-password@gmail.com?to=you@example.com`.

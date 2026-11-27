@@ -845,12 +845,26 @@ def check_card_row(issuer, card, last4, owner):
 
 def parse_card_csv(text):
     """Turn CSV text into preview entries. Returns (entries, error)."""
+    return parse_card_rows(csv.reader(io.StringIO(text)))
+
+
+def _cell_text(value):
+    """A spreadsheet cell as text. Whole numbers lose their '.0'; blank cells become ''."""
+    if value is None:
+        return ""
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value).strip()
+
+
+def parse_card_rows(rows):
+    """Turn rows of cells (from a CSV or a spreadsheet) into preview entries. Returns (entries, error)."""
     header = None
     entries = []
     existing = _existing_card_keys()
     seen = set()
-    for lineno, cells in enumerate(csv.reader(io.StringIO(text)), start=1):
-        cells = [c.strip() for c in cells]
+    for lineno, cells in enumerate(rows, start=1):
+        cells = [_cell_text(c) for c in cells]
         if not any(cells):
             continue
         if header is None:
@@ -2088,20 +2102,23 @@ CARD_IMPORT = r"""{% extends 'base.html' %}
 {% block content %}
 <h1>Import cards</h1>
 {% if stage == 'upload' %}
-<p class="meta" style="margin-bottom:18px">Add many cards at once from a CSV file. You'll check the list before anything is saved.</p>
+<p class="meta" style="margin-bottom:18px">Add many cards at once from the Excel template or a CSV file. You'll check the list before anything is saved.</p>
 <form method="post" enctype="multipart/form-data" class="panel form" style="max-width:640px">
-  <label>CSV file
-    <input type="file" name="csv_file" accept=".csv,text/csv" required>
+  <label>Excel or CSV file
+    <input type="file" name="csv_file" accept=".xlsx,.csv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required>
   </label>
   <div class="actions">
     <button class="primary" type="submit">Check file</button>
-    <a class="ghost" href="{{ url_for('card_import_sample') }}">Download a sample</a>
+    <a class="ghost" href="{{ url_for('card_import_template') }}">Download the Excel template</a>
+    <a class="ghost" href="{{ url_for('card_import_sample') }}">Download a CSV sample</a>
   </div>
 </form>
 <section class="panel" style="margin-top:18px;max-width:640px">
   <h2>File format</h2>
   <p class="meta">One card per line, with these columns: <code>Issuer,Card,Last4,Owner</code>.
     The first line can be that header row. Only <b>Card</b> is required.</p>
+  <p class="meta">The Excel template has dropdowns: pick the issuer, and the card list shows that issuer's cards.
+    Owner also has a dropdown of your people. Both still accept names you type.</p>
   <pre style="white-space:pre-wrap;font-size:.88rem">Issuer,Card,Last4,Owner
 Chase,Sapphire Preferred,1234,Mom
 American Express,Blue Cash Everyday,5678,Dad</pre>
@@ -3274,6 +3291,117 @@ def remove_card():
     return redirect(url_for("card_settings_page"))
 
 
+XLSX_MAX_UNPACKED = 20 * 1024 * 1024   # a spreadsheet that unpacks larger than this is refused
+TEMPLATE_ROWS = 300                     # rows that have dropdowns and the number format in the template
+
+
+def _xlsx_rows(raw):
+    """Rows of cells from an Excel file: the Cards sheet, or the first sheet. Returns (rows, error)."""
+    from openpyxl import load_workbook
+    try:
+        with zipfile.ZipFile(io.BytesIO(raw)) as z:
+            if sum(i.file_size for i in z.infolist()) > XLSX_MAX_UNPACKED:
+                return None, "That spreadsheet is too large once it is opened."
+        wb = load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
+    except Exception:
+        return None, "That Excel file could not be read. Save it again as .xlsx, or use a CSV file."
+    try:
+        ws = wb["Cards"] if "Cards" in wb.sheetnames else wb[wb.sheetnames[0]]
+        rows = []
+        for row in ws.iter_rows(values_only=True):
+            rows.append(list(row[:6]))         # extra columns are ignored
+            if len(rows) > IMPORT_MAX_ROWS + 50:
+                break
+        return rows, None
+    finally:
+        wb.close()
+
+
+def card_template_xlsx():
+    """An Excel file to fill in. The Issuer and Card columns have dropdowns: the cards follow the issuer you pick."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Font, PatternFill
+    from openpyxl.worksheet.datavalidation import DataValidation
+    catalog = sorted(list_card_types(), key=lambda c: (c["issuer"].lower(), c["name"].lower()))
+    issuers = sorted({c["issuer"] for c in catalog}, key=str.lower)
+    owners = [p["name"] for p in people_rows()]
+    last = TEMPLATE_ROWS + 1
+    wb = Workbook()
+    cards = wb.active
+    cards.title = "Cards"
+    cards.append(["Issuer", "Card", "Last4", "Owner"])
+    for col, width in zip("ABCD", (28, 36, 10, 24)):
+        cards.column_dimensions[col].width = width
+    for col in range(1, 5):
+        cell = cards.cell(1, col)
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="3B6CF6")
+        cell.alignment = Alignment(horizontal="left")
+    for r in range(2, last + 1):
+        cards.cell(r, 3).number_format = "@"      # keeps leading zeros, shows as text
+    cards.freeze_panes = "A2"
+
+    lists = wb.create_sheet("Lists")
+    for i, c in enumerate(catalog, start=1):
+        lists.cell(i, 1, c["issuer"])
+        lists.cell(i, 2, c["name"])
+    for i, name in enumerate(issuers, start=1):
+        lists.cell(i, 4, name)
+    for i, name in enumerate(owners, start=1):
+        lists.cell(i, 5, name)
+    lists.sheet_state = "hidden"
+
+    # Dropdowns allow typing something else too, so cards not in the list can still be imported.
+    if issuers:
+        dv = DataValidation(type="list", formula1=f"Lists!$D$1:$D${len(issuers)}",
+                            allow_blank=True, showErrorMessage=False)
+        dv.add(f"A2:A{last}")
+        cards.add_data_validation(dv)
+    if catalog:
+        n = len(catalog)
+        dv = DataValidation(type="list",
+                            formula1=f"OFFSET(Lists!$B$1,MATCH($A2,Lists!$A$1:$A${n},0)-1,0,COUNTIF(Lists!$A$1:$A${n},$A2),1)",
+                            allow_blank=True, showErrorMessage=False)
+        dv.add(f"B2:B{last}")
+        cards.add_data_validation(dv)
+    if owners:
+        dv = DataValidation(type="list", formula1=f"Lists!$E$1:$E${len(owners)}",
+                            allow_blank=True, showErrorMessage=False)
+        dv.add(f"D2:D{last}")
+        cards.add_data_validation(dv)
+    dv = DataValidation(type="textLength", operator="equal", formula1="4", allow_blank=True,
+                        showErrorMessage=True, errorTitle="Last4",
+                        error="Type exactly 4 digits, or leave the cell blank.")
+    dv.add(f"C2:C{last}")
+    cards.add_data_validation(dv)
+
+    help_sheet = wb.create_sheet("Read me")
+    help_sheet.column_dimensions["A"].width = 100
+    lines = [
+        "How to fill in this file",
+        "",
+        "1. Pick the Issuer from the list, then pick the Card for that issuer. You can also type a name.",
+        "2. Last4: the last four digits of the card only. Never type a full card number.",
+        "3. Owner: the person who carries the card. Pick a name from the list or type a new one.",
+        "4. Leave a row blank to skip it. A card with no name is imported as 'Unnamed card'.",
+        "5. Save the file as Excel (.xlsx) and upload it on the Import page. A CSV file also works.",
+        "",
+        "The card and owner lists are on a hidden sheet called Lists.",
+    ]
+    for i, line in enumerate(lines, start=1):
+        help_sheet.cell(i, 1, line).font = Font(bold=(i == 1))
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+@app.get("/cards/import/template.xlsx")
+def card_import_template():
+    return Response(card_template_xlsx(),
+                    mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": "attachment; filename=credit-cards-template.xlsx"})
+
+
 @app.route("/cards/import", methods=["GET", "POST"])
 def card_import():
     if request.method == "GET":
@@ -3287,12 +3415,19 @@ def card_import():
     if len(raw) > IMPORT_MAX_BYTES:
         flash("That file is larger than 256 KB.")
         return redirect(url_for("card_import"))
-    try:
-        text = raw.decode("utf-8-sig")
-    except UnicodeDecodeError:
-        flash("Save the file as a CSV in UTF-8 format, then try again.")
-        return redirect(url_for("card_import"))
-    entries, err = parse_card_csv(text)
+    if raw[:2] == b"PK":                       # an Excel (.xlsx) file is a zip archive
+        rows, err = _xlsx_rows(raw)
+        if err:
+            flash(err)
+            return redirect(url_for("card_import"))
+        entries, err = parse_card_rows(rows)
+    else:
+        try:
+            text = raw.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            flash("Save the file as a CSV in UTF-8 format, or as an Excel (.xlsx) file, then try again.")
+            return redirect(url_for("card_import"))
+        entries, err = parse_card_csv(text)
     if err:
         flash(err)
         return redirect(url_for("card_import"))
@@ -3754,7 +3889,8 @@ def card_pictures_scrape():
     uploads, problems = _scrape_pictures(page, candidates_out=found)
     if uploads:
         return _stage_and_review(uploads, problems)
-    web = [(u, d) for u, d in found if urlparse(u).scheme in ("http", "https")]
+    web = [(u, d) for u, d in found if urlparse(u).scheme in ("http", "https")
+           and unquote(urlparse(u).path).lower().endswith(PICTURE_EXTS)]
     if web:
         return _picker(page, web, problems)
     flash("No card pictures could be taken from that page. " + " ".join(problems))
